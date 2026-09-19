@@ -178,7 +178,7 @@ int main() {
         ");", nullptr, nullptr, nullptr);
 
     // 3. 创建线程池
-    ThreadPool pool(8);
+    ThreadPool pool(4);
 
     // 4. 创建 epoll
     int epoll_fd = epoll_create1(0);
