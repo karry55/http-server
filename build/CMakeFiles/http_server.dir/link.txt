@@ -1,0 +1,1 @@
+/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/http_server.dir/link.d CMakeFiles/http_server.dir/main.cpp.o CMakeFiles/http_server.dir/src/server.cpp.o CMakeFiles/http_server.dir/src/handler.cpp.o CMakeFiles/http_server.dir/src/db.cpp.o CMakeFiles/http_server.dir/src/cache.cpp.o CMakeFiles/http_server.dir/src/thread_pool.cpp.o -o http_server  -lsqlite3 -lhiredis -lpthread
