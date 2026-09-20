@@ -1,0 +1,15 @@
+# 编译产物
+build/
+*.o
+*.out
+
+# 数据库（测试与运行时产物）
+*.db
+todo
+
+# 日志
+*.log
+
+# 编辑器 / IDE
+.vscode/
+.idea/
