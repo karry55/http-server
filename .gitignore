@@ -1,19 +1,15 @@
-# 可执行文件
-http_server
-http_server_epoll
-http_server_redis
-http_server_thread_pool
+# 编译产物
+build/
+*.o
+*.out
 
 # 数据库
 *.db
 todo
 
-# 编译产物
-*.o
-*.out
-
-# VS Code
-.vscode/
-
 # 日志
 *.log
+
+# 编辑器 / IDE
+.vscode/
+.idea/
