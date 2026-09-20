@@ -1,53 +1,26 @@
-# HTTP Todo Server
+# HTTP Todo Server（单文件版）
 
-用 C++17 和 POSIX socket 从零实现的 HTTP 服务端，**没有使用任何 Web 框架**——
+用 C++17 和 POSIX socket 从零实现的 HTTP Todo 服务端，**不使用任何 Web 框架**——
 请求报文解析、路由分发、响应拼装全部手写。
 
-项目用两种方式组织，互为对照：
+本分支是**演进过程版**：同一个 API 写了七个渐进版本，每个都是独立可编译的单文件，
+每次只改一个维度（并发模型、数据层、接口完整度），每个版本都做了压测，
+用数据说明瓶颈迁移到了哪里。
 
-- **`single_file/`** —— 七个渐进版本，每个都是独立可编译的单文件，方便横向对比并发模型与数据层
-- **`modular/`** —— 把最终形态拆成 Server / Handler / DB / Cache / ThreadPool 四层，配 CMake 构建和模块级冒烟测试
-
-## 目录结构
-
-```
-04-http-server/
-├── single_file/                       单文件版本，g++ 直接编译
-│   ├── http_server.cpp                    V1 阻塞版，最朴素的起点
-│   ├── http_server_epoll.cpp              V2 epoll 事件驱动（单线程）
-│   ├── http_server_thread_pool.cpp        V3 epoll + 线程池
-│   ├── http_server_redis.cpp              V5 线程池 + Redis 列表缓存
-│   ├── http_server_restful.cpp            V6 完整 RESTful CRUD + 逐条缓存
-│   └── http_server_et_loop.cpp            V7 在 V6 基础上修正 ET 循环读
-│
-├── modular/                           CMake 模块化版本
-│   ├── CMakeLists.txt                 构建配置（含 sqlite3 / hiredis / pthread）
-│   ├── main.cpp                       组装四个对象，13 行
-│   ├── include/                       接口声明
-│   │   ├── server.h                      socket + epoll + 线程池
-│   │   ├── handler.h                     路由分发，返回 (status, body)
-│   │   ├── db.h                          SQLite 封装
-│   │   ├── cache.h                       Redis 封装
-│   │   └── thread_pool.h                 通用线程池
-│   ├── src/                           对应实现
-│   └── tests/                         四个模块各自的冒烟测试
-│
-├── big_body.txt                       8001 字节的测试请求体（验证跨缓冲区边界）
-└── .gitignore
-```
+> 工程化重构后的版本（Server / Handler / DB / Cache / ThreadPool 四层 + CMake + 测试）
+> 在 **`master` 分支**。
 
 ## 七个版本
 
 | 编号 | 文件 | 并发模型 | 数据层 | 接口范围 |
 | --- | --- | --- | --- | --- |
-| V1 | `single_file/http_server.cpp` | 阻塞式 `accept`，一问一答 | SQLite | 基础 + `DELETE` + `/echo` |
-| V2 | `single_file/http_server_epoll.cpp` | epoll 事件驱动（单线程） | SQLite | 基础 |
-| V3 | `single_file/http_server_thread_pool.cpp` | epoll + 线程池（4 线程） | SQLite | 基础 |
+| V1 | `http_server.cpp` | 阻塞式 `accept`，一问一答 | SQLite | 基础 + `DELETE` + `/echo` |
+| V2 | `http_server_epoll.cpp` | epoll 事件驱动（单线程） | SQLite | 基础 |
+| V3 | `http_server_thread_pool.cpp` | epoll + 线程池（4 线程） | SQLite | 基础 |
 | V4 | *（V3 的线程数改为 8 的压测变体，未单独保留文件）* | epoll + 线程池（8 线程） | SQLite | 基础 |
-| V5 | `single_file/http_server_redis.cpp` | epoll + 线程池（4 线程） | SQLite + Redis（列表缓存） | 基础 |
-| V6 | `single_file/http_server_restful.cpp` | epoll + 线程池（4 线程） | SQLite + Redis（列表 + 逐条） | 完整 CRUD |
-| V7 | `single_file/http_server_et_loop.cpp` | 同 V6，并修正 ET 循环读 | SQLite + Redis | 完整 CRUD |
-| — | `modular/` | 同 V7，拆成四层 | 同上 | 完整 CRUD |
+| V5 | `http_server_redis.cpp` | epoll + 线程池（4 线程） | SQLite + Redis（列表缓存） | 基础 |
+| V6 | `http_server_restful.cpp` | epoll + 线程池（4 线程） | SQLite + Redis（列表 + 逐条） | 完整 CRUD |
+| V7 | `http_server_et_loop.cpp` | 同 V6，并修正 ET 循环读 | SQLite + Redis | 完整 CRUD |
 
 四种并发模型、两条数据层演进、两次接口扩展，交错在这七个版本里。压测结果见 [性能](#性能)。
 
@@ -61,9 +34,9 @@
 | `GET` | `/status` | 健康检查，返回 `{"status": "ok"}` | 全部版本 |
 | `POST` | `/todo` | 新建待办，请求体即内容 | 全部版本 |
 | `GET` | `/todos` | 列出全部待办 | 全部版本（V5 起走缓存） |
-| `GET` | `/todo/<id>` | 查询单条，不存在返回 `404` | V6 / V7 / 模块化 |
-| `PUT` | `/todo/<id>` | 更新单条内容 | V6 / V7 / 模块化 |
-| `DELETE` | `/todo/<id>` | 删除单条 | V1、V6 / V7 / 模块化 |
+| `GET` | `/todo/<id>` | 查询单条，不存在返回 `404` | V6 / V7 |
+| `PUT` | `/todo/<id>` | 更新单条内容 | V6 / V7 |
+| `DELETE` | `/todo/<id>` | 删除单条 | V1、V6 / V7 |
 | `POST` | `/echo` | 回显请求体，调试用 | 仅 V1 |
 
 写操作的成功响应统一是 `{"status": "created" | "updated" | "deleted"}`；
@@ -75,7 +48,7 @@
 | 版本 | 缓存键 | 失效时机 |
 | --- | --- | --- |
 | V5 | `todos_cache`（整个列表） | `POST /todo` 后 `DEL` |
-| V6 / V7 / 模块化 | `todos_cache` + `todo_<id>`（逐条） | 任何写操作都同时失效该条的键和列表键 |
+| V6 / V7 | `todos_cache` + `todo_<id>`（逐条） | 任何写操作都同时失效该条的键和列表键 |
 
 TTL 统一 60 秒。逐条缓存是为 `GET /todo/<id>` 准备的：命中时直接返回整份序列化好的 JSON，
 连 SQLite 都不进。
@@ -84,78 +57,50 @@ TTL 统一 60 秒。逐条缓存是为 `GET /todo/<id>` 准备的：命中时直
 
 - 写缓存用 `%b` 而不是 `%s` 传参，保证 JSON 内容二进制安全
 - Redis 连接用 `thread_local`，每个工作线程一条独立连接（hiredis 的 `redisContext` 不是线程安全的）
-- 连接**按需惰性建立**，不是启动时一次性连好 —— `Cache::Cache()` 里只是触发一次 `get_redis()`
+- 连接**按需惰性建立**，不是启动时一次性连好
 
-## 编译与运行
+## 编译
 
 依赖：
 
 ```bash
-sudo apt install build-essential cmake libsqlite3-dev libhiredis-dev
+sudo apt install build-essential libsqlite3-dev libhiredis-dev
 ```
 
-### 单文件版本
-
 ```bash
-cd single_file
+# V1：只读不写
+g++ -std=c++17 -O2 -o http_server http_server.cpp -lsqlite3
 
-# 只读不写（V2 / V3）
+# V2 / V3：sqlite3，V3 再加 pthread
 g++ -std=c++17 -O2 -o http_server_epoll       http_server_epoll.cpp       -lsqlite3
 g++ -std=c++17 -O2 -o http_server_thread_pool http_server_thread_pool.cpp -lsqlite3 -pthread
 
-# 需要 Redis（V5 / V6 / V7）
-g++ -std=c++17 -O2 -o http_server_redis  http_server_redis.cpp  -lsqlite3 -lhiredis -pthread
+# V5 / V6 / V7：需要 hiredis
+g++ -std=c++17 -O2 -o http_server_redis   http_server_redis.cpp   -lsqlite3 -lhiredis -pthread
 g++ -std=c++17 -O2 -o http_server_restful http_server_restful.cpp -lsqlite3 -lhiredis -pthread
 g++ -std=c++17 -O2 -o http_server_et_loop http_server_et_loop.cpp -lsqlite3 -lhiredis -pthread
-
-# V1 只需要 sqlite3
-g++ -std=c++17 -O2 -o http_server http_server.cpp -lsqlite3
 ```
 
-### 模块化版本
+## 运行
 
 ```bash
-cd modular
-cmake -B build -S .
-cmake --build build
-./build/http_server
+redis-server --daemonize yes   # V5 / V6 / V7 需要
+./http_server_et_loop          # 换成任意一个版本都一样
 ```
 
-### 单元测试
+启动后监听 8080，并在**当前工作目录**创建 / 打开 `todo.db`。表结构由
+`CREATE TABLE IF NOT EXISTS` 自动建好，不需要手动初始化。
 
-四个模块各有自己的冒烟测试，**没有接进 CMake**，需要单独编译。
-它们是打印式的（输出结果给人看，不做断言），跑起来要先把 Redis 起好：
-
-```bash
-cd modular
-g++ -std=c++17 -Iinclude -o build/test_db        tests/test_db.cpp        src/db.cpp        -lsqlite3
-g++ -std=c++17 -Iinclude -o build/test_cache     tests/test_cache.cpp     src/cache.cpp     -lhiredis
-g++ -std=c++17 -Iinclude -o build/test_handler   tests/test_handler.cpp   src/handler.cpp src/db.cpp src/cache.cpp -lsqlite3 -lhiredis
-g++ -std=c++17 -Iinclude -o build/test_thread_pool tests/test_thread_pool.cpp src/thread_pool.cpp -pthread
-
-./build/test_db          # 增删改查走一遍
-./build/test_cache       # set / get / del
-./build/test_handler     # 直接调 Handler，不经过 socket
-./build/test_thread_pool # 投 10 个任务，看 4 个线程怎么分
-```
-
-### 跑起来看看
+### 试一下
 
 ```bash
-# 需要 Redis 的版本先起服务
-redis-server --daemonize yes
-
-./http_server_et_loop
-```
-
-```bash
-curl -X POST -d 'buy milk' http://127.0.0.1:8080/todo
+curl -X POST -d 'buy milk'     http://127.0.0.1:8080/todo
 curl -X POST -d 'write README' http://127.0.0.1:8080/todo
 
 curl http://127.0.0.1:8080/todos
 # [{"id": 1, "content": "buy milk"},{"id": 2, "content": "write README"}]
 
-curl http://127.0.0.1:8080/todo/1          # V6 / V7 / 模块化
+curl http://127.0.0.1:8080/todo/1          # V6 / V7
 # {"id": 1, "content": "buy milk"}
 
 curl -X PUT -d 'buy bread' http://127.0.0.1:8080/todo/1
@@ -165,8 +110,8 @@ curl -X DELETE http://127.0.0.1:8080/todo/1
 # {"status": "deleted"}
 ```
 
-`big_body.txt` 是给大请求体准备的：8001 字节，超过 4096 的读缓冲区，用来验证跨多次 `read`
-的报文拼接是否正确。
+`big_body.txt` 是给大请求体准备的：8001 字节，超过 4096 的读缓冲区，
+用来验证跨多次 `read` 的报文拼接是否正确。
 
 ```bash
 curl -X POST --data-binary @big_body.txt http://127.0.0.1:8080/todo
@@ -178,8 +123,8 @@ curl -X POST --data-binary @big_body.txt http://127.0.0.1:8080/todo
 新建一个空数据库，看起来就像"数据丢了"：
 
 ```bash
-cd single_file && ./http_server_et_loop   # ✅ todo.db 落在 single_file/
-cd /tmp && /path/to/http_server           # ❌ 会在 /tmp 另建一个空 todo.db
+./http_server_et_loop        # ✅ todo.db 落在项目根目录
+cd /tmp && /path/to/binary   # ❌ 会在 /tmp 另建一个空 todo.db
 ```
 
 ## 性能
@@ -191,13 +136,13 @@ cd /tmp && /path/to/http_server           # ❌ 会在 /tmp 另建一个空 todo
 
 | 版本 | 文件 | 线程数 | QPS | 延迟 Avg | 延迟 Stdev | 延迟 Max | ± Stdev | 错误数 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| V1 阻塞版 | `single_file/http_server.cpp` | 1 | 0 | —— | —— | —— | —— | —— |
-| V2 epoll 版 | `single_file/http_server_epoll.cpp` | 1 | 1094 | 15.07 ms | 50.82 ms | 1.67 s | 98.78% | 3 timeout |
-| V3 线程池版 | `single_file/http_server_thread_pool.cpp` | 4 | 1889 | 50.27 ms | 14.49 ms | 260.77 ms | 78.20% | 0 |
+| V1 阻塞版 | `http_server.cpp` | 1 | 0 | —— | —— | —— | —— | —— |
+| V2 epoll 版 | `http_server_epoll.cpp` | 1 | 1094 | 15.07 ms | 50.82 ms | 1.67 s | 98.78% | 3 timeout |
+| V3 线程池版 | `http_server_thread_pool.cpp` | 4 | 1889 | 50.27 ms | 14.49 ms | 260.77 ms | 78.20% | 0 |
 | V4 线程池版 | 同上，线程数改为 8 | 8 | 1887 | 48.66 ms | 18.98 ms | 311.66 ms | 83.22% | 0 |
-| V5 Redis 版 | `single_file/http_server_redis.cpp` | 4 | **32670** | **2.67 ms** | 6.06 ms | 213.88 ms | 99.73% | 0 |
+| V5 Redis 版 | `http_server_redis.cpp` | 4 | **32670** | **2.67 ms** | 6.06 ms | 213.88 ms | 99.73% | 0 |
 
-V6、V7 和模块化版本**还没有压测数据**。
+V6、V7 **还没有压测数据**。
 
 ### 逐版本解读
 
@@ -244,7 +189,7 @@ V3 是"大家一起排队"。尾巴收掉了、总吞吐上去了，代价是每
 
 **这是整份数据里信息量最大的一行**：它说明瓶颈不在工作线程的数量上。
 
-原因在数据层——当时所有版本共用同一个全局 `sqlite3*` 连接，而 SQLite 默认是 serialized 模式，
+原因在数据层——所有版本共用同一个全局 `sqlite3*` 连接，而 SQLite 默认是 serialized 模式，
 每次操作都要抢同一把互斥锁。线程从 4 加到 8，只是让更多线程排队等同一把锁，
 真正执行 SQL 的部分仍然是串行的。
 
@@ -307,7 +252,7 @@ hiredis 的 `redisContext` 不是线程安全的，多个线程共用一条连�
 V6 引入的逐条缓存（`todo_<id>`）缓解的是另一个问题：让 `GET /todo/<id>` 不必为了取一行
 而把整张表扫一遍。但它同样会在每次写操作时被清掉。
 
-### 五步迭代分别在解决什么
+### 六步迭代分别在解决什么
 
 | 迭代 | 解决的问题 | 手段 | 结果 |
 | --- | --- | --- | --- |
@@ -315,7 +260,7 @@ V6 引入的逐条缓存（`todo_<id>`）缓解的是另一个问题：让 `GET 
 | V2 → V3 | 单线程被数据库操作拖住 | 业务处理挪进线程池 | 吞吐 +73%，尾延迟收掉，超时归零 |
 | V3 → V4 | （证伪）设想加线程能提速 | 4 → 8 线程 | 吞吐没动，暴露真正的瓶颈在数据层 |
 | V4 → V5 | 数据层的锁竞争 | 加 Redis 缓存绕开热点读 | 17 倍 |
-| V5 → V6/V7 | 接口不完整、缓存粒度太粗 | 补全 CRUD，加逐条缓存 | 功能对齐 REST 语义 |
+| V5 → V6 | 接口不完整、缓存粒度太粗 | 补全 CRUD，加逐条缓存 | 功能对齐 REST 语义 |
 | V6 → V7 | ET 模式下不循环读会截断报文 | 循环读到 `EAGAIN` | 大请求体不再出错 |
 
 ### 测试口径与局限
@@ -331,19 +276,17 @@ V6 引入的逐条缓存（`todo_<id>`）缓解的是另一个问题：让 `GET 
 这是练习代码，为保持每个版本尽量短，有几处刻意没有做：
 
 - **V2 / V3 / V5 / V6 注册了 `EPOLLET`，但每次事件只 `read` 一次**，没有循环读到 `EAGAIN`。
-  请求体超过 4096 字节时会被截断。**V7 和模块化版本已经修正**，做法是循环读直到 `EAGAIN`
-  （`single_file/http_server_et_loop.cpp`、`modular/src/server.cpp`）
-- **模块化版本有一个 fd 竞态**：`Server::run()` 收到可读事件后**没有先把 fd 从 epoll 摘除**
-  就丢进线程池，而读循环是在工作线程里做的。EPOLLET 下如果请求分多个 TCP 段到达，
-  同一个 fd 可能被投递两次任务，导致两个线程同时读同一个 fd。单文件版（V7）的写法是
-  先在事件循环里读完、`EPOLL_CTL_DEL` 之后再入队，没有这个问题
+  请求体超过 4096 字节时会被截断。**V7 已经修正**，做法是循环读直到 `EAGAIN`
 - `content` 未做 JSON 转义，直接拼进响应；含引号的待办会破坏 JSON
 - 没有请求体大小上限、没有超时控制、没有 `keep-alive`
-- 缓存是"整表一个 key + 逐条一个 key"，任何一次写入都会让列表缓存失效
-- 单元测试是打印式的冒烟测试，没有断言，也没有接进 CMake
+- 线程池队列无上限，连接无背压
+- 所有线程共享同一个 `sqlite3*`，数据库操作实际串行
 
 ## 仓库说明
 
-编译产物（各版本的无扩展名可执行文件、`*.o`、`*.out`）、数据库（`*.db`）、
-Redis/服务日志（`*.log`）和编辑器配置（`.vscode/`）都不会入库，
-`build/` 目录同理。
+各版本的无扩展名可执行文件、`*.o`、`*.out`、`*.db`、`*.log` 和 `.vscode/` 都不会入库。
+
+其他分支：
+
+- **`master`** —— 工程化重构版（本分支保留的是演进过程）
+- **`feature-*`** —— 开发中的功能

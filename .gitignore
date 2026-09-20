@@ -1,19 +1,22 @@
-# 可执行文件
+# 可执行文件（没有扩展名，只能按名字忽略）
 http_server
 http_server_epoll
-http_server_redis
 http_server_thread_pool
-
-# 数据库
-*.db
-todo
+http_server_redis
+http_server_restful
+http_server_et_loop
 
 # 编译产物
 *.o
 *.out
 
-# VS Code
-.vscode/
+# 数据库
+*.db
+todo
 
 # 日志
 *.log
+
+# 编辑器 / IDE
+.vscode/
+.idea/
