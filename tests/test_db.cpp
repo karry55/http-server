@@ -1,36 +1,23 @@
 #include "db.h"
-#include <iostream>
+#include "check.h"
 
 int main() {
-    DB db("test.db");
+    DB db(":memory:");          // ← 内存数据库，测试间互不干扰
 
-    // 添加
-    db.addTodo("buy milk");
-    db.addTodo("learn C++");
+    CHECK_EQ(db.getTodos().size(), 0u);          // 空库
 
-    // 查询所有
-    auto todos = db.getTodos();
-    std::cout << "所有待办:" << std::endl;
-    for (auto& t : todos) {
-        std::cout << "  " << t.id << ": " << t.content << std::endl;
-    }
+    CHECK(db.addTodo("buy milk"));               // 增
+    CHECK(db.addTodo("learn C++"));
+    CHECK_EQ(db.getTodos().size(), 2u);
 
-    // 查询单条
-    auto t = db.getTodo(1);
-    std::cout << "id=1: " << t.content << std::endl;
+    CHECK_EQ(db.getTodo(1).content, std::string("buy milk"));   // 查
+    CHECK_EQ(db.getTodo(999).id, -1);                            // 查不到
 
-    // 更新
-    db.updateTodo(1, "buy bread");
+    CHECK(db.updateTodo(1, "buy bread"));        // 改
+    CHECK_EQ(db.getTodo(1).content, std::string("buy bread"));
 
-    // 删除
-    db.deleteTodo(2);
+    CHECK(db.deleteTodo(2));                     // 删
+    CHECK_EQ(db.getTodos().size(), 1u);
 
-    // 再查询
-    todos = db.getTodos();
-    std::cout << "更新+删除后:" << std::endl;
-    for (auto& t : todos) {
-        std::cout << "  " << t.id << ": " << t.content << std::endl;
-    }
-
-    return 0;
+    return test_summary("test_db");
 }
