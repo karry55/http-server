@@ -1,14 +1,13 @@
 #pragma once
-
 #include <string>
 #include "db.h"
 #include "cache.h"
+#include "ai.h"
 
 class Handler {
 public:
-    Handler(DB& db, Cache& cache);
+    Handler(DB& db, Cache& cache, AI& ai);
 
-    // 返回 (status_code, body)
     std::pair<std::string, std::string> handle(
         const std::string& method,
         const std::string& path,
@@ -17,4 +16,5 @@ public:
 private:
     DB& db_;
     Cache& cache_;
+    AI& ai_;
 };

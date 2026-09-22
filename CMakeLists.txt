@@ -15,6 +15,7 @@ set(SOURCES
     src/db.cpp
     src/cache.cpp
     src/thread_pool.cpp
+    src/ai.cpp
 )
 
 # 可执行文件
@@ -25,6 +26,7 @@ target_link_libraries(http_server
     sqlite3
     hiredis
     pthread
+    curl
 )
 
 # ==================== 测试 ====================

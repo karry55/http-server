@@ -2,7 +2,8 @@
 #include <cctype>
 #include <iostream>
 
-Handler::Handler(DB& db, Cache& cache) : db_(db), cache_(cache) {}
+Handler::Handler(DB& db, Cache& cache, AI& ai)
+    : db_(db), cache_(cache), ai_(ai) {}
 
 std::pair<std::string, std::string> Handler::handle(
     const std::string& method,
@@ -105,7 +106,10 @@ std::pair<std::string, std::string> Handler::handle(
             cache_.del("todo_" + std::to_string(id));
             cache_.del("todos_cache");
         }
-    } else {
+    } else if (method == "POST" && path == "/todo/classify") {
+    std::string category = ai_.Classify(req_body);
+    body = R"({"category": ")" + category + R"("})";
+    }else {
         body = R"({"error": "not found"})";
         status = "404 Not Found";
     }
