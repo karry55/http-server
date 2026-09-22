@@ -13,5 +13,3 @@ todo
 # 编辑器 / IDE
 .vscode/
 .idea/
-
-.env
