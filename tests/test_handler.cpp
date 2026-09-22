@@ -1,10 +1,12 @@
 #include "handler.h"
+#include "ai.h"      // ← 新增
 #include <iostream>
 
 int main() {
     DB db("test_handler.db");
     Cache cache;
-    Handler handler(db, cache);
+    AI ai;                              // ← 新增
+    Handler handler(db, cache, ai);     // ← 3 个参数
 
     // GET /
     auto [status, body] = handler.handle("GET", "/", "");
