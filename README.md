@@ -169,3 +169,40 @@ g++ -std=c++17 -Iinclude -o build/test_thread_pool tests/test_thread_pool.cpp sr
 
 - **`single-file`** —— 六个单文件版本，含完整压测数据
 - **`feature-*`** —— 开发中的功能，合回本分支后删除
+
+
+## AI 集成（开发中）
+
+### 目标
+
+把 HTTP 服务器升级为“能调用 AI”的服务。
+
+### 已完成
+
+- **AI Demo**：用 C++ 调用 DeepSeek API，实现待办事项智能分类。
+
+### 技术栈
+
+| 技术 | 用途 |
+| :--- | :--- |
+| **libcurl** | 发 HTTPS 请求 |
+| **nlohmann/json** | 解析 JSON 响应 |
+| **`.env`** | 安全存储 API Key |
+
+### 代码结构
+ai/
+└── ai_demo.cpp # AI 调用 demo
+
+
+### 运行方式
+
+```bash
+# 1. 创建 .env
+echo 'DEEPSEEK_API_KEY=sk-xxxxxxxx' > .env
+
+# 2. 编译
+cd ai
+g++ -o ai_demo ai_demo.cpp -lcurl
+
+# 3. 运行
+./ai_demo
