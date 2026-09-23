@@ -11,9 +11,14 @@
 :root {
   --primary:        #6366f1;   /* 主色：柔和蓝紫 */
   --primary-dark:   #4f46e5;
+  --primary-light:  #eef2ff;   /* 一键总结按钮用 */
+  --primary-border: #c7d2fe;
   --blue:           #3b82f6;   /* 分类按钮用的蓝 */
   --blue-light:     #eff6ff;
   --blue-border:    #bfdbfe;
+  --amber:          #d97706;   /* 优先级按钮用的琥珀色 */
+  --amber-light:    #fffbeb;
+  --amber-border:   #fde68a;
   --danger:         #ef4444;   /* 删除按钮用的红 */
   --danger-light:   #fef2f2;
   --danger-border:  #fecaca;
@@ -74,6 +79,7 @@ body {
   margin: 0 0 20px 4px;
 }
 .header .logo { font-size: 26px; line-height: 1; }
+.header .btn  { margin-left: auto; }   /* 「一键总结」推到最右 */
 .header h1 {
   margin: 0;
   font-size: 24px;
@@ -147,6 +153,12 @@ body {
 
 .btn-classify { background: var(--blue-light);   color: #2563eb;      border-color: var(--blue-border); }
 .btn-classify:hover:not(:disabled) { background: #dbeafe; border-color: #93c5fd; }
+
+.btn-priority { background: var(--amber-light); color: var(--amber); border-color: var(--amber-border); }
+.btn-priority:hover:not(:disabled) { background: #fef3c7; border-color: #fcd34d; }
+
+.btn-summarize { background: var(--primary-light); color: var(--primary-dark); border-color: var(--primary-border); font-weight: 600; }
+.btn-summarize:hover:not(:disabled) { background: #e0e7ff; border-color: #a5b4fc; }
 
 .btn-edit     { background: #f3f4f6;  color: #4b5563; border-color: var(--border); }
 .btn-edit:hover:not(:disabled)     { background: #e5e7eb; border-color: #d1d5db; }
@@ -305,6 +317,27 @@ body {
 .modal-source   { font-size: 14px; color: var(--text-faint); margin-bottom: 6px; }
 .modal-category { font-size: 22px; font-weight: 700; color: var(--primary); }
 
+/* 优先级徽章：高=红 / 中=琥珀 / 低=绿 */
+.modal-priority {
+  display: inline-block;
+  min-width: 92px;
+  padding: 6px 20px;
+  border-radius: 999px;
+  font-size: 20px;
+  font-weight: 700;
+}
+.modal-priority.high { background: #fef2f2; color: #dc2626; }
+.modal-priority.mid  { background: #fffbeb; color: var(--amber); }
+.modal-priority.low  { background: #ecfdf5; color: #059669; }
+
+/* AI 总结的正文 */
+.modal-summary {
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--text);
+  text-align: left;
+}
+
 /* ============================================================
    跨域 / 连接失败 提示条
    ============================================================ */
@@ -344,6 +377,15 @@ body {
     gap: 10px;
   }
   .todo-actions { justify-content: flex-end; }
+
+  /* 现在每条待办有 4 个按钮，窄屏要收紧一点才放得下 */
+  .todo-actions { gap: 4px; }
+  .todo-actions .btn { padding: 6px 8px; font-size: 12px; gap: 4px; }
+}
+
+/* 超窄屏：按钮只留图标，鼠标悬停有 title 提示 */
+@media (max-width: 400px) {
+  .todo-actions .btn span:last-child { display: none; }
 }
 </style>
 </head>
@@ -353,6 +395,10 @@ body {
   <header class="header">
     <span class="logo" aria-hidden="true">📝</span>
     <h1>待办事项</h1>
+    <!-- AI 一键总结：把当前所有待办发给后端 /todo/summarize -->
+    <button id="summarize-btn" class="btn btn-summarize btn-sm" type="button">
+      <span aria-hidden="true">✨</span><span id="summarize-label">一键总结</span>
+    </button>
   </header>
 
   <main class="card">
@@ -386,7 +432,7 @@ body {
   </main>
 </div>
 
-<!-- 通用弹窗（分类结果 / 编辑） -->
+<!-- 通用弹窗（分类 / 优先级 / 总结 / 编辑） -->
 <div id="overlay" class="overlay" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div id="modal-icon" class="modal-icon" aria-hidden="true">🏷️</div>
@@ -417,6 +463,8 @@ const $ = (id) => document.getElementById(id);
 
 const todoInput    = $('todo-input');
 const addBtn       = $('add-btn');
+const summarizeBtn = $('summarize-btn');
+const summarizeLbl = $('summarize-label');
 const todoList     = $('todo-list');
 const emptyState   = $('empty');
 const skeleton     = $('skeleton');
@@ -503,6 +551,20 @@ const apiClassifyTodo = (content) => api('/todo/classify', {
   body: content,
 });
 
+/** POST /todo/prioritize（纯文本 body）→ {priority} */
+const apiPrioritizeTodo = (content) => api('/todo/prioritize', {
+  method: 'POST',
+  headers: TEXT_HEADERS,
+  body: content,
+});
+
+/** POST /todo/summarize（纯文本 body）→ {summary} */
+const apiSummarizeTodos = (text) => api('/todo/summarize', {
+  method: 'POST',
+  headers: TEXT_HEADERS,
+  body: text,
+});
+
 /* ============================================================
    Toast
    ============================================================ */
@@ -538,6 +600,9 @@ function showToast(message, type = 'success') {
    渲染
    ============================================================ */
 
+/** 当前列表的快照，供「一键总结」取用 */
+let currentTodos = [];
+
 /**
  * 切换骨架屏显隐。
  * @param {boolean} on
@@ -568,9 +633,10 @@ function createTodoItem(todo) {
   const actions = document.createElement('div');
   actions.className = 'todo-actions';
   actions.append(
-    makeButton('btn btn-classify btn-sm', '🏷️', '分类', () => onClassifyClick(todo)),
-    makeButton('btn btn-edit btn-sm',     '✏️', '编辑', () => onEditClick(todo)),
-    makeButton('btn btn-danger btn-sm',   '🗑️', '删除', () => onDeleteClick(todo, li)),
+    makeButton('btn btn-classify btn-sm', '🏷️', '分类',   () => onClassifyClick(todo)),
+    makeButton('btn btn-priority btn-sm', '⚡', '优先级', () => onPrioritizeClick(todo)),
+    makeButton('btn btn-edit btn-sm',     '✏️', '编辑',   () => onEditClick(todo)),
+    makeButton('btn btn-danger btn-sm',   '🗑️', '删除',   () => onDeleteClick(todo, li)),
   );
 
   li.append(content, actions);
@@ -584,6 +650,7 @@ function makeButton(className, icon, label, onClick) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = className;
+  btn.title = label;             // 超窄屏只显示图标时，悬停仍能看到名称
 
   const i = document.createElement('span');
   i.setAttribute('aria-hidden', 'true');
@@ -602,6 +669,7 @@ function makeButton(className, icon, label, onClick) {
  * @param {Array<{id:number, content:string}>} todos
  */
 function renderTodos(todos) {
+  currentTodos = todos;          // 记下来，供「一键总结」使用
   todoList.innerHTML = '';
 
   if (!todos.length) {
@@ -803,6 +871,92 @@ async function onClassifyClick(todo) {
 }
 
 /**
+ * 优先级：POST /todo/prioritize，用弹窗展示结果。
+ * @param {{id:number, content:string}} todo
+ */
+async function onPrioritizeClick(todo) {
+  const btn = todoList.querySelector(`.todo-item[data-id="${todo.id}"] .btn-priority`);
+  if (btn) btn.disabled = true;
+
+  try {
+    const data = await apiPrioritizeTodo(todo.content);
+    const priority = (data && data.priority) ? String(data.priority).trim() : '中';
+
+    const wrap   = document.createElement('div');
+    const source = document.createElement('div');
+    source.className = 'modal-source';
+    source.textContent = todo.content;
+
+    const badge = document.createElement('div');
+    badge.className = 'modal-priority ' + priorityLevelClass(priority);
+    badge.textContent = priority;    // textContent，防止返回内容被当成标签解析
+
+    wrap.append(source, badge);
+
+    openModal({
+      icon: '⚡',
+      title: 'AI 判断的优先级',
+      body: wrap,
+      actions: [{ label: '知道了', className: 'btn btn-primary', onClick: closeModal }],
+    });
+  } catch (err) {
+    handleError(err, '获取优先级失败');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/**
+ * 把后端返回的优先级文字映射成 CSS 类名，用来上色。
+ * @param {string} priority
+ * @returns {'high'|'mid'|'low'}
+ */
+function priorityLevelClass(priority) {
+  if (priority.includes('高')) return 'high';
+  if (priority.includes('低')) return 'low';
+  return 'mid';
+}
+
+/**
+ * 一键总结：把当前所有待办拼成一段纯文本，POST /todo/summarize。
+ */
+async function onSummarizeClick() {
+  if (!currentTodos.length) {
+    showToast('还没有待办，先添加几个吧', 'error');
+    todoInput.focus();
+    return;
+  }
+
+  // 按钮进入「思考中」状态（AI 调用通常要 1~3 秒）
+  summarizeBtn.disabled = true;
+  const originalLabel = summarizeLbl.textContent;
+  summarizeLbl.textContent = '总结中…';
+
+  try {
+    // 后端只收纯文本，这里用分号把各条待办连起来
+    const payload = currentTodos.map((t) => t.content).join('；');
+    const data = await apiSummarizeTodos(payload);
+    const summary = (data && data.summary) ? data.summary : '（AI 没有返回内容）';
+
+    const box = document.createElement('div');
+    box.className = 'modal-summary';
+    box.textContent = summary;       // textContent，防止返回内容被当成标签解析
+
+    openModal({
+      icon: '✨',
+      title: 'AI 总结',
+      body: box,
+      actions: [{ label: '知道了', className: 'btn btn-primary', onClick: closeModal }],
+    });
+  } catch (err) {
+    handleError(err, '总结失败');
+  } finally {
+    summarizeBtn.disabled = false;
+    summarizeLbl.textContent = originalLabel;
+  }
+}
+
+/**
  * 编辑：弹出输入框，确认后 PUT /todo/:id。
  * @param {{id:number, content:string}} todo
  */
@@ -884,6 +1038,7 @@ async function onDeleteClick(todo, li) {
    事件绑定 & 初始化
    ============================================================ */
 addBtn.addEventListener('click', onAddClick);
+summarizeBtn.addEventListener('click', onSummarizeClick);
 
 // 输入框回车也能添加
 todoInput.addEventListener('keydown', (e) => {

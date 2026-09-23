@@ -109,6 +109,13 @@ std::pair<std::string, std::string> Handler::handle(
     } else if (method == "POST" && path == "/todo/classify") {
     std::string category = ai_.Classify(req_body);
     body = R"({"category": ")" + category + R"("})";
+    }
+     else if (method == "POST" && path == "/todo/summarize") {
+    std::string summary = ai_.Summarize(req_body);
+    body = R"({"summary": ")" + summary + R"("})";
+    } else if (method == "POST" && path == "/todo/prioritize") {
+    std::string priority = ai_.Prioritize(req_body);
+    body = R"({"priority": ")" + priority + R"("})";
     }else {
         body = R"({"error": "not found"})";
         status = "404 Not Found";

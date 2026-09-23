@@ -90,3 +90,36 @@ std::string AI::Classify(const std::string& content) {
         return "其他";
     }
 }
+
+std::string AI::Summarize(const std::string& todos) {
+    std::string prompt = "请用一句话总结以下待办事项：\n" + todos;
+    std::string response = CallDeepSeek(prompt);
+
+    try {
+        json j = json::parse(response);
+        return j["choices"][0]["message"]["content"];
+    } catch (const std::exception& e) {
+        std::cerr << "解析错误: " << e.what() << std::endl;
+        return "总结失败";
+    }
+}
+
+std::string AI::Prioritize(const std::string& content) {
+       std::string prompt =
+        "请判断下面这条待办的优先级，按「紧急程度 + 重要程度」评估。\n"
+        "判断标准：\n"
+        "高 = 今天必须完成，或有明确截止时间，或不做会有严重后果\n"
+        "中 = 这周内应该完成，重要但不紧急\n"
+        "低 = 有空再做即可，没有时间压力\n"
+        "只回答一个汉字：高、中 或 低，不要输出任何其他文字。\n"
+        "待办：" + content;
+    std::string response = CallDeepSeek(prompt);
+
+    try {
+        json j = json::parse(response);
+        return j["choices"][0]["message"]["content"];
+    } catch (const std::exception& e) {
+        std::cerr << "解析错误: " << e.what() << std::endl;
+        return "中";
+    }
+}
