@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>待办事项</title>
+<style>
+/* ============================================================
+   设计变量
+   ============================================================ */
+:root {
+  --primary:        #6366f1;   /* 主色：柔和蓝紫 */
+  --primary-dark:   #4f46e5;
+  --blue:           #3b82f6;   /* 分类按钮用的蓝 */
+  --blue-light:     #eff6ff;
+  --blue-border:    #bfdbfe;
+  --danger:         #ef4444;   /* 删除按钮用的红 */
+  --danger-light:   #fef2f2;
+  --danger-border:  #fecaca;
+  --success:        #10b981;
+
+  --text:           #1f2937;   /* 正文深灰 */
+  --text-muted:     #6b7280;
+  --text-faint:     #9ca3af;
+  --border:         #e5e7eb;
+  --surface:        #ffffff;
+
+  --radius-lg:      12px;      /* 卡片圆角 */
+  --radius:         8px;       /* 按钮 / 输入框圆角 */
+
+  --shadow-card:    0 1px 3px rgba(17, 24, 39, .06), 0 8px 24px rgba(17, 24, 39, .06);
+  --shadow-focus:   0 0 0 3px rgba(99, 102, 241, .15);
+  --shadow-toast:   0 6px 20px rgba(17, 24, 39, .18);
+  --shadow-modal:   0 20px 50px rgba(17, 24, 39, .22);
+
+  --t: .2s ease;               /* 统一过渡时长 */
+}
+
+/* ============================================================
+   基础
+   ============================================================ */
+* { box-sizing: border-box; }
+
+/* 保证 hidden 属性永远生效（否则会被后面的 display:flex 之类覆盖） */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding: 0;
+  background: linear-gradient(180deg, #f9fafb 0%, #f3f4f6 100%);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Microsoft YaHei", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   页面骨架
+   ============================================================ */
+.page {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 48px 20px 64px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 20px 4px;
+}
+.header .logo { font-size: 26px; line-height: 1; }
+.header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid rgba(229, 231, 235, .7);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+}
+
+/* ============================================================
+   输入区
+   ============================================================ */
+.composer {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 12px 14px;
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  transition: border-color var(--t), box-shadow var(--t);
+}
+.input::placeholder { color: var(--text-faint); }
+.input:focus {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-focus);
+}
+
+/* ============================================================
+   按钮
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;              /* 按钮文字永不换行 */
+  padding: 10px 16px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background-color var(--t), border-color var(--t), color var(--t),
+              transform var(--t), box-shadow var(--t);
+}
+.btn:hover:not(:disabled)  { transform: scale(1.04); }
+.btn:active:not(:disabled) { transform: scale(.96); }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+.btn-primary  { background: var(--primary); color: #fff; box-shadow: 0 1px 2px rgba(99,102,241,.35); }
+.btn-primary:hover:not(:disabled)  { background: var(--primary-dark); }
+
+.btn-classify { background: var(--blue-light);   color: #2563eb;      border-color: var(--blue-border); }
+.btn-classify:hover:not(:disabled) { background: #dbeafe; border-color: #93c5fd; }
+
+.btn-edit     { background: #f3f4f6;  color: #4b5563; border-color: var(--border); }
+.btn-edit:hover:not(:disabled)     { background: #e5e7eb; border-color: #d1d5db; }
+
+.btn-danger   { background: var(--danger-light); color: var(--danger); border-color: var(--danger-border); }
+.btn-danger:hover:not(:disabled)   { background: #fee2e2; border-color: #fca5a5; }
+
+.btn-ghost    { background: #fff; color: var(--text-muted); border-color: var(--border); }
+.btn-ghost:hover:not(:disabled)    { background: #f9fafb; }
+
+.btn-sm { padding: 6px 10px; font-size: 13px; }
+
+/* ============================================================
+   列表
+   ============================================================ */
+.list { list-style: none; margin: 0; padding: 0; }
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  margin: 2px -12px;
+  border-radius: var(--radius);
+  border-bottom: 1px solid #f3f4f6;
+  transition: background-color var(--t), opacity var(--t), transform var(--t);
+  animation: itemIn .25s ease both;
+}
+.todo-item:last-child { border-bottom: none; }
+.todo-item:hover      { background: #f9fafb; }
+
+/* 删除时的淡出 */
+.todo-item.is-leaving {
+  animation: itemOut .22s ease forwards;
+  pointer-events: none;
+}
+
+.todo-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;          /* 超长单词也能折行 */
+}
+
+.todo-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+@keyframes itemIn  { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes itemOut { to   { opacity: 0; transform: translateX(16px); } }
+
+/* 空状态 */
+.empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 15px;
+}
+.empty .empty-icon {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 40px;
+  opacity: .75;
+}
+
+/* ============================================================
+   骨架屏（首次加载）
+   ============================================================ */
+.skeleton {
+  height: 46px;
+  margin: 8px 0;
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, #f3f4f6 25%, #e9ebef 37%, #f3f4f6 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
+
+/* ============================================================
+   Toast 提示
+   ============================================================ */
+#toasts {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 40px);
+  max-width: 420px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  box-shadow: var(--shadow-toast);
+  animation: toastIn .25s cubic-bezier(.2, .9, .3, 1.2) both;
+}
+.toast.is-leaving { animation: toastOut .22s ease forwards; }
+.toast.success { background: var(--success); }
+.toast.error   { background: var(--danger); }
+.toast.info    { background: var(--primary); }
+
+@keyframes toastIn  { from { opacity: 0; transform: translateY(-14px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes toastOut { to   { opacity: 0; transform: translateY(-10px) scale(.96); } }
+
+/* ============================================================
+   弹窗
+   ============================================================ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(17, 24, 39, .38);
+  backdrop-filter: blur(3px);
+  animation: fadeIn .18s ease both;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal {
+  width: 100%;
+  max-width: 380px;
+  padding: 24px;
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  text-align: center;
+  animation: modalIn .22s cubic-bezier(.2, .9, .3, 1.15) both;
+}
+@keyframes modalIn { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: none; } }
+
+.modal-icon  { font-size: 34px; line-height: 1; margin-bottom: 10px; }
+.modal-title { margin: 0 0 10px; font-size: 17px; font-weight: 600; }
+.modal-body  { margin-bottom: 20px; color: var(--text-muted); overflow-wrap: anywhere; }
+.modal-actions { display: flex; gap: 10px; justify-content: center; }
+
+.modal-source   { font-size: 14px; color: var(--text-faint); margin-bottom: 6px; }
+.modal-category { font-size: 22px; font-weight: 700; color: var(--primary); }
+
+/* ============================================================
+   跨域 / 连接失败 提示条
+   ============================================================ */
+.hint {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.hint code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(146, 64, 14, .1);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.hint ol { margin: 8px 0 0; padding-left: 20px; }
+
+/* ============================================================
+   响应式：手机
+   ============================================================ */
+@media (max-width: 600px) {
+  .page  { padding: 28px 14px 48px; }
+  .card  { padding: 16px; }
+  .header h1 { font-size: 22px; }
+
+  .composer { gap: 8px; }
+
+  /* 窄屏时内容与按钮分两行，按钮本身仍排成一行不换行 */
+  .todo-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .todo-actions { justify-content: flex-end; }
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+  <header class="header">
+    <span class="logo" aria-hidden="true">📝</span>
+    <h1>待办事项</h1>
+  </header>
+
+  <main class="card">
+    <!-- 输入区 -->
+    <div class="composer">
+      <input id="todo-input" class="input" type="text" maxlength="200"
+             placeholder="想做点什么？" autocomplete="off">
+      <button id="add-btn" class="btn btn-primary" type="button">
+        <span aria-hidden="true">➕</span><span>添加</span>
+      </button>
+    </div>
+
+    <!-- 骨架屏：仅首次加载时出现 -->
+    <div id="skeleton" hidden>
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+    </div>
+
+    <!-- 列表 -->
+    <ul id="todo-list" class="list"></ul>
+
+    <!-- 空状态 -->
+    <div id="empty" class="empty" hidden>
+      <span class="empty-icon" aria-hidden="true">🗒️</span>
+      暂无待办，添加一个吧
+    </div>
+
+    <!-- 连不上后端 / 跨域 时的自助提示 -->
+    <div id="cors-hint" class="hint" hidden></div>
+  </main>
+</div>
+
+<!-- 通用弹窗（分类结果 / 编辑） -->
+<div id="overlay" class="overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div id="modal-icon" class="modal-icon" aria-hidden="true">🏷️</div>
+    <h2 id="modal-title" class="modal-title">标题</h2>
+    <div id="modal-body" class="modal-body"></div>
+    <div id="modal-actions" class="modal-actions"></div>
+  </div>
+</div>
+
+<!-- Toast 容器 -->
+<div id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<script>
+'use strict';
+
+/* ============================================================
+   配置
+   ============================================================ */
+const API_BASE = 'http://127.0.0.1:8080';
+
+/** 后端接口要求「纯文本」请求体；text/plain 属于 CORS 安全类型，不会触发预检 */
+const TEXT_HEADERS = { 'Content-Type': 'text/plain;charset=UTF-8' };
+
+/* ============================================================
+   DOM 引用
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+
+const todoInput    = $('todo-input');
+const addBtn       = $('add-btn');
+const todoList     = $('todo-list');
+const emptyState   = $('empty');
+const skeleton     = $('skeleton');
+const corsHint     = $('cors-hint');
+const toasts       = $('toasts');
+const overlay      = $('overlay');
+const modalIcon    = $('modal-icon');
+const modalTitle   = $('modal-title');
+const modalBody    = $('modal-body');
+const modalActions = $('modal-actions');
+
+/* ============================================================
+   错误类型
+   ============================================================ */
+class ApiError extends Error {
+  /**
+   * @param {'NETWORK'|'HTTP'} kind  失败类型
+   * @param {string} message         给用户看的中文描述
+   */
+  constructor(kind, message) {
+    super(message);
+    this.name = 'ApiError';
+    this.kind = kind;
+  }
+}
+
+/* ============================================================
+   API 层
+   ============================================================ */
+
+/**
+ * 统一的请求封装。
+ * @param {string} path          例：'/todos'、'/todo/3'
+ * @param {RequestInit} [options] fetch 配置（body 直接传字符串）
+ * @returns {Promise<any>}       解析后的 JSON；响应体为空时返回 null
+ * @throws {ApiError}
+ */
+async function api(path, options = {}) {
+  let res;
+  try {
+    res = await fetch(API_BASE + path, options);
+  } catch {
+    // fetch 仅在网络层失败时抛错：连不上、被 CORS 拦截、DNS 失败……
+    throw new ApiError('NETWORK', '连不上后端服务');
+  }
+
+  if (!res.ok) {
+    throw new ApiError('HTTP', `请求失败（HTTP ${res.status}）`);
+  }
+
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;   // 后端返回非 JSON 时原样返回，交给调用方判断
+  }
+}
+
+/** GET /todos → [{id, content}, ...] */
+const apiListTodos = () => api('/todos');
+
+/** POST /todo（纯文本 body） */
+const apiCreateTodo = (content) => api('/todo', {
+  method: 'POST',
+  headers: TEXT_HEADERS,
+  body: content,
+});
+
+/** PUT /todo/:id（纯文本 body） */
+const apiUpdateTodo = (id, content) => api(`/todo/${id}`, {
+  method: 'PUT',
+  headers: TEXT_HEADERS,
+  body: content,
+});
+
+/** DELETE /todo/:id */
+const apiDeleteTodo = (id) => api(`/todo/${id}`, { method: 'DELETE' });
+
+/** POST /todo/classify（纯文本 body）→ {category} */
+const apiClassifyTodo = (content) => api('/todo/classify', {
+  method: 'POST',
+  headers: TEXT_HEADERS,
+  body: content,
+});
+
+/* ============================================================
+   Toast
+   ============================================================ */
+
+const TOAST_ICONS = { success: '✅', error: '⚠️', info: 'ℹ️' };
+
+/**
+ * 顶部弹出提示，3 秒后自动消失。
+ * @param {string} message
+ * @param {'success'|'error'|'info'} [type='success']
+ */
+function showToast(message, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+
+  const icon = document.createElement('span');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = TOAST_ICONS[type] || '';
+
+  const text = document.createElement('span');
+  text.textContent = message;          // 用 textContent，避免注入
+
+  el.append(icon, text);
+  toasts.appendChild(el);
+
+  setTimeout(() => {
+    el.classList.add('is-leaving');
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+  }, 3000);
+}
+
+/* ============================================================
+   渲染
+   ============================================================ */
+
+/**
+ * 切换骨架屏显隐。
+ * @param {boolean} on
+ */
+function setLoading(on) {
+  skeleton.hidden = !on;
+  if (on) {
+    // 加载中先清空列表，避免旧数据残留
+    todoList.innerHTML = '';
+    emptyState.hidden = true;
+  }
+}
+
+/**
+ * 构建单条待办。
+ * @param {{id:number, content:string}} todo
+ * @returns {HTMLLIElement}
+ */
+function createTodoItem(todo) {
+  const li = document.createElement('li');
+  li.className = 'todo-item';
+  li.dataset.id = String(todo.id);
+
+  const content = document.createElement('span');
+  content.className = 'todo-content';
+  content.textContent = todo.content;      // 纯文本，内容里的标签不会被解析
+
+  const actions = document.createElement('div');
+  actions.className = 'todo-actions';
+  actions.append(
+    makeButton('btn btn-classify btn-sm', '🏷️', '分类', () => onClassifyClick(todo)),
+    makeButton('btn btn-edit btn-sm',     '✏️', '编辑', () => onEditClick(todo)),
+    makeButton('btn btn-danger btn-sm',   '🗑️', '删除', () => onDeleteClick(todo, li)),
+  );
+
+  li.append(content, actions);
+  return li;
+}
+
+/**
+ * 生成一个带 emoji 的按钮。
+ */
+function makeButton(className, icon, label, onClick) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = className;
+
+  const i = document.createElement('span');
+  i.setAttribute('aria-hidden', 'true');
+  i.textContent = icon;
+
+  const t = document.createElement('span');
+  t.textContent = label;
+
+  btn.append(i, t);
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+/**
+ * 渲染整个列表。
+ * @param {Array<{id:number, content:string}>} todos
+ */
+function renderTodos(todos) {
+  todoList.innerHTML = '';
+
+  if (!todos.length) {
+    emptyState.hidden = false;
+    return;
+  }
+
+  emptyState.hidden = true;
+  const frag = document.createDocumentFragment();
+  for (const todo of todos) frag.appendChild(createTodoItem(todo));
+  todoList.appendChild(frag);
+}
+
+/* ============================================================
+   弹窗
+   ============================================================ */
+
+/**
+ * 打开弹窗。
+ * @param {object} cfg
+ * @param {string} cfg.icon
+ * @param {string} cfg.title
+ * @param {Node|string} [cfg.body]        节点或纯文本
+ * @param {Array<{label:string, className?:string, onClick?:Function}>} [cfg.actions]
+ */
+function openModal({ icon, title, body, actions = [] }) {
+  modalIcon.textContent  = icon  || '';
+  modalTitle.textContent = title || '';
+
+  modalBody.innerHTML = '';
+  if (body instanceof Node)          modalBody.appendChild(body);
+  else if (typeof body === 'string') modalBody.textContent = body;
+
+  modalActions.innerHTML = '';
+  for (const action of actions) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = action.className || 'btn btn-primary';
+    btn.textContent = action.label;
+    btn.addEventListener('click', action.onClick || closeModal);
+    modalActions.appendChild(btn);
+  }
+
+  overlay.hidden = false;
+
+  // 优先聚焦输入框，否则聚焦第一个按钮
+  const focusable = overlay.querySelector('input, button');
+  if (focusable) focusable.focus();
+}
+
+/** 关闭弹窗并清空内容 */
+function closeModal() {
+  overlay.hidden = true;
+  modalBody.innerHTML = '';
+  modalActions.innerHTML = '';
+}
+
+// 点击遮罩空白处关闭
+overlay.addEventListener('click', (e) => {
+  if (e.target === overlay) closeModal();
+});
+
+// Esc 关闭
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !overlay.hidden) closeModal();
+});
+
+/* ============================================================
+   跨域 / 连接失败 自助提示
+   ============================================================ */
+
+/** 只在网络层失败时展示 */
+function showConnectionHint() {
+  if (!corsHint.hidden) return;   // 已经显示过就不重复构建
+
+  const pageUrl = 'file:///' + location.pathname.replace(/^\//, '');
+
+  corsHint.innerHTML = `
+    <strong>连不上后端服务（${API_BASE}）。</strong>
+    <ol>
+      <li>确认后端已启动，并在 <code>${API_BASE}</code> 监听。</li>
+      <li>
+        若后端确实在跑，那就是浏览器<strong>跨域（CORS）</strong>拦截了。
+        本页面是用 <code>file://</code> 直接打开的，浏览器给它的源是 <code>null</code>；
+        而后端没有返回 <code>Access-Control-Allow-Origin</code> 响应头，
+        因此所有请求都会被浏览器拒绝。另外 <code>PUT</code> / <code>DELETE</code>
+        还会先发一个 <code>OPTIONS</code> 预检请求，后端也没有处理。
+      </li>
+    </ol>
+    <div style="margin-top:10px">
+      <strong>解决办法（不需要改动后端）：</strong>
+      用「关闭同源策略」的开发模式启动一个独立的浏览器实例。
+      先关掉所有 Edge 窗口，再在 PowerShell 里执行：
+      <div style="margin-top:6px">
+        <code>&amp; "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --disable-web-security --user-data-dir="$env:TEMP\\edge-dev" "${pageUrl}"</code>
+      </div>
+      <div style="margin-top:6px">
+        Chrome 同理，把 <code>msedge.exe</code> 换成 <code>chrome.exe</code> 即可。
+        必须带 <code>--user-data-dir</code>，否则该参数不生效。
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   错误处理
+   ============================================================ */
+
+/**
+ * @param {unknown} err
+ * @param {string} fallback  非 ApiError 时的兜底文案
+ */
+function handleError(err, fallback) {
+  console.error(err);
+  const message = err instanceof ApiError ? err.message : fallback;
+  showToast(message, 'error');
+  if (err instanceof ApiError && err.kind === 'NETWORK') showConnectionHint();
+}
+
+/* ============================================================
+   业务逻辑
+   ============================================================ */
+
+/**
+ * 加载并渲染列表。
+ * @param {{silent?:boolean}} [opts] silent=true 时不显示骨架屏（用于增删改后的刷新）
+ */
+async function loadTodos({ silent = false } = {}) {
+  if (!silent) setLoading(true);
+  try {
+    const todos = await apiListTodos();
+    renderTodos(Array.isArray(todos) ? todos : []);
+    corsHint.hidden = true;          // 一旦成功就收起提示
+  } catch (err) {
+    handleError(err, '加载列表失败');
+  } finally {
+    if (!silent) setLoading(false);
+  }
+}
+
+/** 添加：POST /todo */
+async function onAddClick() {
+  const content = todoInput.value.trim();
+  if (!content) {
+    showToast('请先输入内容', 'error');
+    todoInput.focus();
+    return;
+  }
+
+  addBtn.disabled = true;
+  try {
+    await apiCreateTodo(content);
+    todoInput.value = '';
+    showToast('添加成功', 'success');
+    await loadTodos({ silent: true });
+  } catch (err) {
+    handleError(err, '添加失败');
+  } finally {
+    addBtn.disabled = false;
+    todoInput.focus();
+  }
+}
+
+/**
+ * 分类：POST /todo/classify，用弹窗展示结果。
+ * @param {{id:number, content:string}} todo
+ */
+async function onClassifyClick(todo) {
+  // 临时禁用触发按钮，防止重复点击
+  const btn = todoList.querySelector(`.todo-item[data-id="${todo.id}"] .btn-classify`);
+  if (btn) btn.disabled = true;
+
+  try {
+    const data = await apiClassifyTodo(todo.content);
+    const category = (data && data.category) ? data.category : '未分类';
+
+    const wrap   = document.createElement('div');
+    const source = document.createElement('div');
+    source.className = 'modal-source';
+    source.textContent = todo.content;
+
+    const cat = document.createElement('div');
+    cat.className = 'modal-category';
+    cat.textContent = category;      // textContent，后端返回什么都不会被当成代码执行
+
+    wrap.append(source, cat);
+
+    openModal({
+      icon: '🏷️',
+      title: '智能分类结果',
+      body: wrap,
+      actions: [{ label: '知道了', className: 'btn btn-primary', onClick: closeModal }],
+    });
+  } catch (err) {
+    handleError(err, '分类失败');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/**
+ * 编辑：弹出输入框，确认后 PUT /todo/:id。
+ * @param {{id:number, content:string}} todo
+ */
+function onEditClick(todo) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'input';
+  input.value = todo.content;
+  input.maxLength = 200;
+
+  /** 提交修改 */
+  async function submit() {
+    const next = input.value.trim();
+    if (!next) {
+      showToast('内容不能为空', 'error');
+      input.focus();
+      return;
+    }
+    if (next === todo.content) {   // 没改动就直接关掉，省一次请求
+      closeModal();
+      return;
+    }
+
+    try {
+      await apiUpdateTodo(todo.id, next);
+      closeModal();
+      showToast('修改成功', 'success');
+      await loadTodos({ silent: true });
+    } catch (err) {
+      handleError(err, '修改失败');
+    }
+  }
+
+  // 回车即保存
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    }
+  });
+
+  openModal({
+    icon: '✏️',
+    title: '编辑待办',
+    body: input,
+    actions: [
+      { label: '取消', className: 'btn btn-ghost',   onClick: closeModal },
+      { label: '保存', className: 'btn btn-primary', onClick: submit },
+    ],
+  });
+
+  // openModal 里已经 focus 过，这里再全选一次，方便直接改写
+  input.focus();
+  input.select();
+}
+
+/**
+ * 删除：确认后 DELETE /todo/:id，等淡出动画播完再刷新。
+ * @param {{id:number, content:string}} todo
+ * @param {HTMLLIElement} li
+ */
+async function onDeleteClick(todo, li) {
+  if (!confirm(`确定删除「${todo.content}」吗？`)) return;
+
+  li.classList.add('is-leaving');   // 先播淡出
+
+  try {
+    await apiDeleteTodo(todo.id);
+    showToast('删除成功', 'success');
+    await new Promise((resolve) => setTimeout(resolve, 220));  // 等动画结束
+    await loadTodos({ silent: true });
+  } catch (err) {
+    li.classList.remove('is-leaving');   // 失败就还原
+    handleError(err, '删除失败');
+  }
+}
+
+/* ============================================================
+   事件绑定 & 初始化
+   ============================================================ */
+addBtn.addEventListener('click', onAddClick);
+
+// 输入框回车也能添加
+todoInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    onAddClick();
+  }
+});
+
+// 首屏加载
+loadTodos();
+</script>
+</body>
+</html>
