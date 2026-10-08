@@ -3,8 +3,41 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <iostream>
+#include <unistd.h>     // readlink
+#include <limits.h>     // PATH_MAX
 
 using json = nlohmann::json;
+
+// 找出可执行文件所在的目录。例如可执行文件是 /a/b/build/http_server，
+// 就返回 /a/b/build/（结尾带斜杠）。
+//
+// 为什么要这个：程序里 ".env" 和 "todo.db" 都是相对路径，会按“当前所在文件夹”
+// 去找。从 build/ 里启动就会读错文件。有了这个函数，就能以可执行文件的位置
+// 为基准去定位，和你在哪启动无关。
+static std::string exe_dir() {
+    char buf[PATH_MAX];
+    ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n <= 0) return "";
+    buf[n] = '\0';
+    std::string path(buf);
+    size_t slash = path.find_last_of('/');
+    return (slash == std::string::npos) ? "" : path.substr(0, slash + 1);
+}
+
+// 找 .env：先看当前文件夹，找不到就回到可执行文件的上一级目录（项目根目录）。
+static std::string find_env() {
+    {
+        std::ifstream f(".env");
+        if (f.is_open()) return ".env";
+    }
+    std::string dir = exe_dir();
+    if (!dir.empty()) {
+        std::string p = dir + "../.env";
+        std::ifstream f(p);
+        if (f.is_open()) return p;
+    }
+    return "";
+}
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) {
     size_t total = size * nmemb;
@@ -22,7 +55,11 @@ AI::AI() {
 AI::~AI() {}
 
 std::string AI::LoadEnv(const std::string& key) {
-    std::ifstream file(".env");
+    // 自动定位 .env（当前目录优先，其次项目根目录），不再依赖“必须在哪里启动”
+    std::string path = find_env();
+    if (path.empty()) return "";
+
+    std::ifstream file(path);
     if (!file.is_open()) return "";
 
     std::string line;

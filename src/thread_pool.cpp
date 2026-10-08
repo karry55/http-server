@@ -1,4 +1,5 @@
 #include "thread_pool.h"
+#include <iostream>     // std::cerr（打印异常信息用）
 
 ThreadPool::ThreadPool(size_t n) : stop_(false) {
     for (size_t i = 0; i < n; i++) {
@@ -12,7 +13,15 @@ ThreadPool::ThreadPool(size_t n) : stop_(false) {
                     task = std::move(tasks_.front());
                     tasks_.pop();
                 }
-                task();
+                // 兜底：任务里抛出的任何异常都不能逃出线程函数，
+                // 否则 C++ 会调用 std::terminate() 直接杀掉整个进程。
+                try {
+                    task();
+                } catch (const std::exception& e) {
+                    std::cerr << "任务抛异常: " << e.what() << std::endl;
+                } catch (...) {
+                    std::cerr << "任务抛未知异常" << std::endl;
+                }
             }
         });
     }

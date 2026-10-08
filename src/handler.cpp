@@ -12,6 +12,20 @@ void trim(std::string& s) {
     while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
     s = s.substr(b, e - b);
 }
+// 把字符串安全地转成 int。转不了就返回 false，绝不抛异常。
+bool parse_id(const std::string& s, int& out) {
+    if (s.empty()) return false;
+    try {
+        size_t pos = 0;
+        long v = std::stol(s, &pos);      // stol 能装更大的数
+        if (pos != s.size()) return false;              // 尾巴上有多余字符
+        if (v < 1 || v > 2147483647L) return false;     // int 的范围是 1 ~ 2147483647
+        out = static_cast<int>(v);
+        return true;
+    } catch (const std::exception&) {
+        return false;                     // 连 stol 都装不下 → 视为非法
+    }
+}
 }  // namespace
 
 Handler::Handler(DB& db, Cache& cache, AI& ai)
@@ -63,14 +77,11 @@ std::pair<std::string, std::string> Handler::handle(
         }
     } else if (method == "GET" && path.rfind("/todo/", 0) == 0) {
         std::string id_str = path.substr(6);
-        bool valid = !id_str.empty();
-        for (char c : id_str) if (!isdigit((unsigned char)c)) valid = false;
-
-        if (!valid) {
+        int id = 0;
+        if (!parse_id(id_str, id)) {
             body = R"({"error": "invalid id"})";
             status = "400 Bad Request";
         } else {
-            int id = std::stoi(id_str);
             std::string key = "todo_" + std::to_string(id);
             std::string cached = cache_.get(key);
             if (!cached.empty()) {
@@ -89,14 +100,11 @@ std::pair<std::string, std::string> Handler::handle(
         }
     } else if (method == "PUT" && path.rfind("/todo/", 0) == 0) {
         std::string id_str = path.substr(6);
-        bool valid = !id_str.empty();
-        for (char c : id_str) if (!isdigit((unsigned char)c)) valid = false;
-
-        if (!valid) {
+        int id = 0;
+        if (!parse_id(id_str, id)) {
             body = R"({"error": "invalid id"})";
             status = "400 Bad Request";
         } else {
-            int id = std::stoi(id_str);
             if (db_.updateTodo(id, req_body)) {
                 body = R"({"status": "updated"})";
             } else {
@@ -108,14 +116,11 @@ std::pair<std::string, std::string> Handler::handle(
         }
     } else if (method == "DELETE" && path.rfind("/todo/", 0) == 0) {
         std::string id_str = path.substr(6);
-        bool valid = !id_str.empty();
-        for (char c : id_str) if (!isdigit((unsigned char)c)) valid = false;
-
-        if (!valid) {
+        int id = 0;
+        if (!parse_id(id_str, id)) {
             body = R"({"error": "invalid id"})";
             status = "400 Bad Request";
         } else {
-            int id = std::stoi(id_str);
             if (db_.deleteTodo(id)) {
                 body = R"({"status": "deleted"})";
             } else {
