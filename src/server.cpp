@@ -12,6 +12,49 @@
 #define BUFFER_SIZE 4096
 #define MAX_EVENTS 1024
 
+namespace {
+
+// 取出请求头里的 Origin（大小写不敏感，任意一行）。找不到就返回空串。
+std::string get_origin(const std::string& request) {
+    size_t head_end = request.find("\r\n\r\n");
+    std::string head = (head_end == std::string::npos) ? request
+                                                       : request.substr(0, head_end);
+
+    size_t pos = head.find("\r\n");
+    if (pos == std::string::npos) return "";   // 只有请求行，没有头
+    pos += 2;
+
+    while (pos < head.size()) {
+        size_t eol = head.find("\r\n", pos);
+        if (eol == std::string::npos) eol = head.size();
+
+        size_t colon = head.find(':', pos);
+        if (colon != std::string::npos && colon < eol) {
+            std::string name = head.substr(pos, colon - pos);
+            for (char& c : name) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+            if (name == "origin") {
+                size_t v = colon + 1;
+                while (v < eol && (head[v] == ' ' || head[v] == '\t')) ++v;
+                return head.substr(v, eol - v);
+            }
+        }
+        pos = eol + 2;
+    }
+    return "";
+}
+
+// 只回显看起来正常的 Origin。
+// 直接拼接未校验的头值会被 CRLF 注入（攻击者塞进额外响应头），所以带控制字符就退回 "*"。
+std::string safe_origin(const std::string& origin) {
+    if (origin.empty()) return "*";
+    for (unsigned char c : origin) {
+        if (c < 0x20 || c == 0x7f) return "*";
+    }
+    return origin;
+}
+
+}  // namespace
+
 Server::Server(int port, Handler& handler)
     : port_(port), server_fd_(-1), epoll_fd_(-1), handler_(handler), pool_(4) {}
 
@@ -125,9 +168,16 @@ void Server::handle_client(int fd) {
     auto [status, body] = handler_.handle(method, path, req_body);
 
     // 构造响应
+    // 允许跨域：页面是 file:// 打开的，Origin 为 "null"，必须回显而不是只发 "*"。
+    // 回显具体 Origin（而非 "*"）也方便以后要带 Cookie 时不用再改。
     std::string response =
         "HTTP/1.1 " + status + "\r\n"
         "Content-Type: application/json\r\n"
+        "Access-Control-Allow-Origin: " + safe_origin(get_origin(request)) + "\r\n"
+        "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: Content-Type\r\n"
+        "Access-Control-Max-Age: 86400\r\n"
+        "Vary: Origin\r\n"
         "Content-Length: " + std::to_string(body.size()) + "\r\n"
         "Connection: close\r\n"
         "\r\n" + body;

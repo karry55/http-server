@@ -2,6 +2,18 @@
 #include <cctype>
 #include <iostream>
 
+namespace {
+// 模型回复常带结尾换行（"工作\n"），直接拼进 JSON 会让前端拿到多余的空白。
+// 注意只去首尾，中间的空格/换行要保留（比如总结可能是多行）。
+void trim(std::string& s) {
+    size_t b = 0;
+    while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
+    size_t e = s.size();
+    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
+    s = s.substr(b, e - b);
+}
+}  // namespace
+
 Handler::Handler(DB& db, Cache& cache, AI& ai)
     : db_(db), cache_(cache), ai_(ai) {}
 
@@ -12,6 +24,13 @@ std::pair<std::string, std::string> Handler::handle(
 
     std::string body;
     std::string status = "200 OK";
+
+    // CORS 预检：浏览器发 PUT/DELETE 或带自定义头的请求前会先发 OPTIONS。
+    // 这里不区分路径，一律放行，真正的鉴权/路由交给下面的分支。
+    // 204 不能带 body，响应头由 Server 统一补（见 src/server.cpp）。
+    if (method == "OPTIONS") {
+        return {"204 No Content", ""};
+    }
 
     if (method == "GET" && path == "/") {
         body = R"({"message": "home"})";
@@ -108,13 +127,16 @@ std::pair<std::string, std::string> Handler::handle(
         }
     } else if (method == "POST" && path == "/todo/classify") {
     std::string category = ai_.Classify(req_body);
+    trim(category);
     body = R"({"category": ")" + category + R"("})";
     }
      else if (method == "POST" && path == "/todo/summarize") {
     std::string summary = ai_.Summarize(req_body);
+    trim(summary);
     body = R"({"summary": ")" + summary + R"("})";
     } else if (method == "POST" && path == "/todo/prioritize") {
     std::string priority = ai_.Prioritize(req_body);
+    trim(priority);
     body = R"({"priority": ")" + priority + R"("})";
     }else {
         body = R"({"error": "not found"})";
