@@ -100,6 +100,8 @@ std::string AI::CallDeepSeek(const std::string& prompt) {
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);   // ← 新增：连不上时最多等 5 秒
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);         // ← 新增：整个请求最多 15 秒
 
         CURLcode res = curl_easy_perform(curl);
         if (res != CURLE_OK) {

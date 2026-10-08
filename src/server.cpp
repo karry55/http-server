@@ -11,6 +11,7 @@
 
 #define BUFFER_SIZE 4096
 #define MAX_EVENTS 1024
+#define MAX_REQUEST_SIZE (1024 * 1024)   // ← 新增：请求最大 1MB
 
 namespace {
 
@@ -121,6 +122,22 @@ void Server::handle_client(int fd) {
         int bytes_read = read(fd, buffer, BUFFER_SIZE - 1);
         if (bytes_read > 0) {
             request.append(buffer, bytes_read);
+
+            // ← 新增：超过上限就拒绝，防止一个请求把内存吃光
+            if (request.size() > MAX_REQUEST_SIZE) {
+                const char* body = R"({"error": "request too large"})";
+                std::string resp =
+                    "HTTP/1.1 413 Payload Too Large\r\n"
+                    "Content-Type: application/json\r\n"
+                    "Content-Length: " + std::to_string(strlen(body)) + "\r\n"
+                    "Connection: close\r\n"
+                    "\r\n" + body;
+                write(fd, resp.c_str(), resp.size());
+
+                epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
+                close(fd);
+                return;
+            }
         } else if (bytes_read == 0) {
             epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
             close(fd);
@@ -135,7 +152,7 @@ void Server::handle_client(int fd) {
             }
         }
     }
-
+    
     if (request.empty()) {
         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
         close(fd);
