@@ -12,6 +12,37 @@ void trim(std::string& s) {
     while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
     s = s.substr(b, e - b);
 }
+// 把文本转义成能安全放进 JSON 双引号里的形式。
+// JSON 规定字符串里的 " 和 \ 必须写成 \" 和 \\，换行、制表符等控制字符也要转义。
+// 不做这一步的话，待办里只要有一个双引号，整个响应就不是合法 JSON 了，
+// 前端 JSON.parse 会直接失败——一条坏数据会把整个列表打挂。
+std::string json_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            case '\b': out += "\\b";  break;
+            case '\f': out += "\\f";  break;
+            default:
+                if (c < 0x20) {
+                    // 其他控制字符写成 \u00XX
+                    static const char* hex = "0123456789abcdef";
+                    out += "\\u00";
+                    out += hex[(c >> 4) & 0xF];
+                    out += hex[c & 0xF];
+                } else {
+                    out += static_cast<char>(c);   // 普通字节（含中文）原样保留
+                }
+        }
+    }
+    return out;
+}
+
 // 把字符串安全地转成 int。转不了就返回 false，绝不抛异常。
 bool parse_id(const std::string& s, int& out) {
     if (s.empty()) return false;
@@ -69,7 +100,7 @@ std::pair<std::string, std::string> Handler::handle(
             for (auto& t : todos) {
                 if (!first) body += ",";
                 body += R"({"id": )" + std::to_string(t.id) +
-                        R"(, "content": ")" + t.content + R"("})";
+                        R"(, "content": ")" + json_escape(t.content) + R"("})";
                 first = false;
             }
             body += "]";
@@ -93,7 +124,7 @@ std::pair<std::string, std::string> Handler::handle(
                     status = "404 Not Found";
                 } else {
                     body = R"({"id": )" + std::to_string(t.id) +
-                           R"(, "content": ")" + t.content + R"("})";
+                           R"(, "content": ")" + json_escape(t.content) + R"("})";
                     cache_.set(key, body, 60);
                 }
             }
@@ -133,16 +164,16 @@ std::pair<std::string, std::string> Handler::handle(
     } else if (method == "POST" && path == "/todo/classify") {
     std::string category = ai_.Classify(req_body);
     trim(category);
-    body = R"({"category": ")" + category + R"("})";
+    body = R"({"category": ")" + json_escape(category) + R"("})";
     }
      else if (method == "POST" && path == "/todo/summarize") {
     std::string summary = ai_.Summarize(req_body);
     trim(summary);
-    body = R"({"summary": ")" + summary + R"("})";
+    body = R"({"summary": ")" + json_escape(summary) + R"("})";
     } else if (method == "POST" && path == "/todo/prioritize") {
     std::string priority = ai_.Prioritize(req_body);
     trim(priority);
-    body = R"({"priority": ")" + priority + R"("})";
+    body = R"({"priority": ")" + json_escape(priority) + R"("})";
     }else {
         body = R"({"error": "not found"})";
         status = "404 Not Found";

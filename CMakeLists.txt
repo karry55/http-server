@@ -4,6 +4,13 @@ project(http_server)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# 打开编译器警告：让它帮我们找出可疑代码。
+#   -Wall    常用警告
+#   -Wextra  更多警告
+#   -Wshadow 变量遮蔽（内层同名变量挡住外层，很隐蔽的坑）
+# 注意先不要加 -Werror，否则任何警告都会导致编译失败，初学者容易卡住。
+add_compile_options(-Wall -Wextra -Wshadow)
+
 include_directories(include)
 
 set(SOURCES
