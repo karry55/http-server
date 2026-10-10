@@ -48,3 +48,6 @@ target_link_libraries(test_handler sqlite3 hiredis curl)
 
 add_unit_test(test_ai src/ai.cpp)
 target_link_libraries(test_ai curl)
+
+add_unit_test(test_server src/server.cpp src/handler.cpp src/db.cpp src/cache.cpp src/ai.cpp src/thread_pool.cpp)
+target_link_libraries(test_server sqlite3 hiredis pthread curl)
