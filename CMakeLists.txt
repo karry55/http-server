@@ -45,3 +45,6 @@ target_link_libraries(test_cache hiredis)
 
 add_unit_test(test_handler     src/handler.cpp src/db.cpp src/cache.cpp src/ai.cpp)
 target_link_libraries(test_handler sqlite3 hiredis curl)
+
+add_unit_test(test_ai src/ai.cpp)
+target_link_libraries(test_ai curl)
