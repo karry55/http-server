@@ -196,7 +196,14 @@ std::pair<std::string, std::string> Handler::handle(const std::string& method,
         std::string subtasks = ai_.Split(req_body);
         body = R"({"subtasks": ")" + subtasks + R"("})";
     } else if (method == "POST" && path == "/chat") {
-        std::string reply = ai_.Chat(req_body);
+        // 获取所有待办
+        auto todos = db_.getTodos();
+        std::string todos_str;
+        for (auto& t : todos) {
+            todos_str += "- " + t.content + "\n";
+        }
+        // 传给 AI
+        std::string reply = ai_.Chat(req_body, todos_str);
         body = R"({"reply": ")" + reply + R"("})";
     } else {
         body = R"({"error": "not found"})";

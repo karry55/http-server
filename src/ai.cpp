@@ -176,25 +176,16 @@ std::string AI::Split(const std::string& content) {
     }
 }
 
-std::string AI::Chat(const std::string& message) {
-    std::string prompt = "你是一个待办助手，请回答用户的问题：" + message;
+std::string AI::Chat(const std::string& message, const std::string& todos) {
+    std::string prompt = "你是一个待办助手。以下是用户的待办事项：\n" + todos 
+                       + "\n\n用户的问题：" + message 
+                       + "\n\n请根据待办事项回答用户的问题。";
     std::string response = CallDeepSeek(prompt);
 
     try {
         json j = json::parse(response);
-        std::string result = j["choices"][0]["message"]["content"];
-
-        // 去掉首尾空格和换行
-        while (!result.empty() && (result.back() == '\n' || result.back() == ' ' || result.back() == '\r')) {
-            result.pop_back();
-        }
-        while (!result.empty() && (result.front() == '\n' || result.front() == ' ' || result.front() == '\r')) {
-            result.erase(0, 1);
-        }
-
-        return result;
+        return j["choices"][0]["message"]["content"];
     } catch (const std::exception& e) {
-        std::cerr << "解析错误: " << e.what() << std::endl;
         return "抱歉，我暂时无法回答。";
     }
 }
