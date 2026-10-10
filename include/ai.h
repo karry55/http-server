@@ -9,6 +9,7 @@ public:
     std::string Summarize(const std::string& todos);   
     std::string Prioritize(const std::string& content); 
     std::string Split(const std::string& content);
+       std::string Chat(const std::string& message); 
 private:
     std::string api_key_;
     std::string CallDeepSeek(const std::string& prompt);

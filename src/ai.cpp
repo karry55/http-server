@@ -175,3 +175,26 @@ std::string AI::Split(const std::string& content) {
         return "拆分失败";
     }
 }
+
+std::string AI::Chat(const std::string& message) {
+    std::string prompt = "你是一个待办助手，请回答用户的问题：" + message;
+    std::string response = CallDeepSeek(prompt);
+
+    try {
+        json j = json::parse(response);
+        std::string result = j["choices"][0]["message"]["content"];
+
+        // 去掉首尾空格和换行
+        while (!result.empty() && (result.back() == '\n' || result.back() == ' ' || result.back() == '\r')) {
+            result.pop_back();
+        }
+        while (!result.empty() && (result.front() == '\n' || result.front() == ' ' || result.front() == '\r')) {
+            result.erase(0, 1);
+        }
+
+        return result;
+    } catch (const std::exception& e) {
+        std::cerr << "解析错误: " << e.what() << std::endl;
+        return "抱歉，我暂时无法回答。";
+    }
+}

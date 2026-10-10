@@ -177,6 +177,9 @@ std::pair<std::string, std::string> Handler::handle(
     } else if (method == "POST" && path == "/todo/split") {
     std::string subtasks = ai_.Split(req_body);
     body = R"({"subtasks": ")" + subtasks + R"("})";
+    } else if (method == "POST" && path == "/chat") {
+    std::string reply = ai_.Chat(req_body);
+    body = R"({"reply": ")" + reply + R"("})";
     }
     else {
         body = R"({"error": "not found"})";
