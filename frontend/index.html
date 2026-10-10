@@ -19,6 +19,9 @@
   --amber:          #d97706;   /* 优先级按钮用的琥珀色 */
   --amber-light:    #fffbeb;
   --amber-border:   #fde68a;
+  --teal:           #0d9488;   /* 拆分按钮用的青绿 */
+  --teal-light:     #f0fdfa;
+  --teal-border:    #99f6e4;
   --danger:         #ef4444;   /* 删除按钮用的红 */
   --danger-light:   #fef2f2;
   --danger-border:  #fecaca;
@@ -79,7 +82,12 @@ body {
   margin: 0 0 20px 4px;
 }
 .header .logo { font-size: 26px; line-height: 1; }
-.header .btn  { margin-left: auto; }   /* 「一键总结」推到最右 */
+/* 「一键总结」和「AI 助手」打包推到最右，两个按钮之间保持间距 */
+.header-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
 .header h1 {
   margin: 0;
   font-size: 24px;
@@ -159,6 +167,9 @@ body {
 
 .btn-summarize { background: var(--primary-light); color: var(--primary-dark); border-color: var(--primary-border); font-weight: 600; }
 .btn-summarize:hover:not(:disabled) { background: #e0e7ff; border-color: #a5b4fc; }
+
+.btn-split    { background: var(--teal-light); color: var(--teal); border-color: var(--teal-border); }
+.btn-split:hover:not(:disabled) { background: #ccfbf1; border-color: #5eead4; }
 
 .btn-edit     { background: #f3f4f6;  color: #4b5563; border-color: var(--border); }
 .btn-edit:hover:not(:disabled)     { background: #e5e7eb; border-color: #d1d5db; }
@@ -339,6 +350,63 @@ body {
 }
 
 /* ============================================================
+   拆分结果：子任务清单
+   ============================================================ */
+.modal-subtasks {
+  margin: 0;
+  padding-left: 22px;
+  text-align: left;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.modal-subtasks li { margin: 6px 0; overflow-wrap: anywhere; }
+
+/* ============================================================
+   AI 聊天面板
+   ============================================================ */
+.chat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chat-head .chat-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.chat-head .btn:first-of-type { margin-left: auto; }   /* 「清空」推到最右 */
+
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.chat-msg {
+  max-width: 85%;
+  padding: 9px 13px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;          /* 后端返回的多行文本按原样换行显示 */
+  overflow-wrap: anywhere;
+  animation: itemIn .2s ease both;
+}
+.chat-msg.user      { align-self: flex-end;   background: var(--primary);      color: #fff; }
+.chat-msg.assistant { align-self: flex-start; background: #f3f4f6;             color: var(--text); }
+.chat-msg.typing    { align-self: flex-start; background: #f3f4f6;             color: var(--text-muted); }
+.chat-msg.error     { align-self: flex-start; background: var(--danger-light); color: var(--danger); border: 1px solid var(--danger-border); }
+
+/* ============================================================
    跨域 / 连接失败 提示条
    ============================================================ */
 .hint {
@@ -378,9 +446,11 @@ body {
   }
   .todo-actions { justify-content: flex-end; }
 
-  /* 现在每条待办有 4 个按钮，窄屏要收紧一点才放得下 */
-  .todo-actions { gap: 4px; }
+  /* 现在每条待办有 5 个按钮（分类/优先级/拆分/编辑/删除），窄屏要收紧并允许折行 */
+  .todo-actions { gap: 4px; flex-wrap: wrap; }
   .todo-actions .btn { padding: 6px 8px; font-size: 12px; gap: 4px; }
+
+  .chat-log { max-height: 240px; }
 }
 
 /* 超窄屏：按钮只留图标，鼠标悬停有 title 提示 */
@@ -395,10 +465,17 @@ body {
   <header class="header">
     <span class="logo" aria-hidden="true">📝</span>
     <h1>待办事项</h1>
-    <!-- AI 一键总结：把当前所有待办发给后端 /todo/summarize -->
-    <button id="summarize-btn" class="btn btn-summarize btn-sm" type="button">
-      <span aria-hidden="true">✨</span><span id="summarize-label">一键总结</span>
-    </button>
+    <div class="header-actions">
+      <!-- AI 一键总结：把当前所有待办发给后端 /todo/summarize -->
+      <button id="summarize-btn" class="btn btn-summarize btn-sm" type="button">
+        <span aria-hidden="true">✨</span><span id="summarize-label">一键总结</span>
+      </button>
+      <!-- AI 助手：展开/收起下面的聊天面板，消息发给后端 /chat -->
+      <button id="chat-toggle-btn" class="btn btn-ghost btn-sm" type="button"
+              aria-expanded="false" aria-controls="chat-panel">
+        <span aria-hidden="true">💬</span><span>AI 助手</span>
+      </button>
+    </div>
   </header>
 
   <main class="card">
@@ -427,12 +504,31 @@ body {
       暂无待办，添加一个吧
     </div>
 
-    <!-- 连不上后端 / 跨域 时的自助提示 -->
+    <!-- 连不上后端时的自助提示 -->
     <div id="cors-hint" class="hint" hidden></div>
   </main>
+
+  <!--
+    AI 聊天面板。
+    注意：后端 /chat 每次只接收一条 message，服务端不保存会话，
+    所以多轮对话的历史要在前端拼进请求体里（见 buildChatPayload）。
+  -->
+  <section id="chat-panel" class="card chat-card" hidden>
+    <div class="chat-head">
+      <span class="chat-title">💬 AI 助手</span>
+      <button id="chat-clear-btn" class="btn btn-ghost btn-sm" type="button">清空</button>
+      <button id="chat-close-btn" class="btn btn-ghost btn-sm" type="button">收起</button>
+    </div>
+    <div id="chat-log" class="chat-log" aria-live="polite"></div>
+    <div class="composer" style="margin-bottom:0">
+      <input id="chat-input" class="input" type="text" maxlength="500"
+             placeholder="问问 AI，比如「帮我安排今天的任务」" autocomplete="off">
+      <button id="chat-send-btn" class="btn btn-primary" type="button">发送</button>
+    </div>
+  </section>
 </div>
 
-<!-- 通用弹窗（分类 / 优先级 / 总结 / 编辑） -->
+<!-- 通用弹窗（分类 / 优先级 / 拆分 / 总结 / 编辑） -->
 <div id="overlay" class="overlay" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div id="modal-icon" class="modal-icon" aria-hidden="true">🏷️</div>
@@ -476,24 +572,110 @@ const modalTitle   = $('modal-title');
 const modalBody    = $('modal-body');
 const modalActions = $('modal-actions');
 
+const chatPanel    = $('chat-panel');
+const chatBtn      = $('chat-toggle-btn');
+const chatCloseBtn = $('chat-close-btn');
+const chatClearBtn = $('chat-clear-btn');
+const chatLog      = $('chat-log');
+const chatInput    = $('chat-input');
+const chatSendBtn  = $('chat-send-btn');
+
 /* ============================================================
    错误类型
    ============================================================ */
 class ApiError extends Error {
   /**
-   * @param {'NETWORK'|'HTTP'} kind  失败类型
-   * @param {string} message         给用户看的中文描述
+   * @param {'NETWORK'|'HTTP'|'PARSE'} kind  失败类型
+   * @param {string} message                 给用户看的中文描述
+   * @param {string} [detail]                后端 {"error": "..."} 里的具体原因
    */
-  constructor(kind, message) {
-    super(message);
+  constructor(kind, message, detail = '') {
+    super(detail ? `${message}：${detail}` : message);
     this.name = 'ApiError';
     this.kind = kind;
+    this.detail = detail;
   }
+}
+
+/* ============================================================
+   容错解析（针对后端没有做 JSON 转义的两个接口）
+   ============================================================ */
+
+/**
+ * 从后端响应里取出一个字符串字段，允许响应体不是合法 JSON。
+ *
+ * 为什么必须有这个函数：
+ * src/handler.cpp 里只有 classify / summarize / prioritize 走了 json_escape()，
+ * 而 /todo/split 和 /chat 是直接把模型输出原样拼进 JSON 的：
+ *
+ *     body = R"({"subtasks": ")" + subtasks + R"("})";
+ *
+ * Split() 的提示词要求「用换行分隔」，模型返回的是**真实换行符**；
+ * Chat() 的回复里也可能有真实换行或双引号。
+ * JSON 的字符串里不允许出现裸换行，所以这两个响应严格来说不是合法 JSON，
+ * JSON.parse 一定会抛错。字段本身是能用的，只能在前端容错解析——而不是去动后端。
+ *
+ * @param {any}    data   已解析出的对象，或解析失败后的原始文本
+ * @param {string} field  字段名，如 'subtasks' / 'reply' / 'error'
+ * @returns {{ok: boolean, value: string}}
+ */
+function extractField(data, field) {
+  // 1) 正常情况：api() 已经把合法 JSON 解析成对象了
+  if (data && typeof data === 'object' && typeof data[field] === 'string') {
+    return { ok: true, value: data[field] };
+  }
+  if (typeof data !== 'string') return { ok: false, value: '' };
+
+  // 2) 还是文本：先按合法 JSON 试一次，这样 \" \\ 之类转义能被正确还原
+  //    （模型偶尔返回单行、不含引号的回复时，后端拼出来的就是合法 JSON）
+  try {
+    const obj = JSON.parse(data);
+    if (obj && typeof obj === 'object' && typeof obj[field] === 'string') {
+      return { ok: true, value: obj[field] };
+    }
+  } catch {
+    // 不是合法 JSON —— 这正是 /todo/split、/chat 的常见情况，继续往下兜底
+  }
+
+  // 3) 兜底：手工剥掉 {"field": " ... "} 外壳。
+  //    用贪婪的 [\s\S]* 一路吃到最后一个 " 之前，
+  //    这样正文里的换行、引号、大括号都能原样保留。
+  const re = new RegExp('^\\s*\\{\\s*"' + field + '"\\s*:\\s*"([\\s\\S]*)"\\s*\\}\\s*$');
+  const m = re.exec(data);
+  if (!m) return { ok: false, value: '' };
+  return { ok: true, value: m[1] };
 }
 
 /* ============================================================
    API 层
    ============================================================ */
+
+/**
+ * 发请求，拿回未经解析的原始文本。
+ * @param {string} path          例：'/todos'、'/todo/3'
+ * @param {RequestInit} [options] fetch 配置（body 直接传字符串）
+ * @returns {Promise<string>}
+ * @throws {ApiError}
+ */
+async function apiRaw(path, options = {}) {
+  let res;
+  try {
+    res = await fetch(API_BASE + path, options);
+  } catch {
+    // fetch 仅在网络层失败时抛错：连不上、DNS 失败……
+    throw new ApiError('NETWORK', '连不上后端服务');
+  }
+
+  const text = await res.text();
+
+  if (!res.ok) {
+    // 后端出错时返回 {"error": "..."}，把它透出来，省得只看到一个状态码
+    const err = extractField(text, 'error');
+    throw new ApiError('HTTP', `请求失败（HTTP ${res.status}）`, err.ok ? err.value : '');
+  }
+
+  return text;
+}
 
 /**
  * 统一的请求封装。
@@ -503,25 +685,32 @@ class ApiError extends Error {
  * @throws {ApiError}
  */
 async function api(path, options = {}) {
-  let res;
-  try {
-    res = await fetch(API_BASE + path, options);
-  } catch {
-    // fetch 仅在网络层失败时抛错：连不上、被 CORS 拦截、DNS 失败……
-    throw new ApiError('NETWORK', '连不上后端服务');
-  }
-
-  if (!res.ok) {
-    throw new ApiError('HTTP', `请求失败（HTTP ${res.status}）`);
-  }
-
-  const text = await res.text();
+  const text = await apiRaw(path, options);
   if (!text) return null;
   try {
     return JSON.parse(text);
   } catch {
     return text;   // 后端返回非 JSON 时原样返回，交给调用方判断
   }
+}
+
+/**
+ * POST 纯文本 body，并取回一个字符串字段。
+ * 专门给 /todo/split 和 /chat 用——它们的响应体没有做 JSON 转义。
+ * @param {string} path
+ * @param {string} field
+ * @param {string} body
+ * @returns {Promise<string>}
+ */
+async function apiTextField(path, field, body) {
+  const raw = await apiRaw(path, {
+    method: 'POST',
+    headers: TEXT_HEADERS,
+    body,
+  });
+  const got = extractField(raw, field);
+  if (!got.ok) throw new ApiError('PARSE', '后端返回的内容无法解析');
+  return got.value;
 }
 
 /** GET /todos → [{id, content}, ...] */
@@ -564,6 +753,12 @@ const apiSummarizeTodos = (text) => api('/todo/summarize', {
   headers: TEXT_HEADERS,
   body: text,
 });
+
+/** POST /todo/split（纯文本 body）→ {subtasks}，多行文本 */
+const apiSplitTodo = (content) => apiTextField('/todo/split', 'subtasks', content);
+
+/** POST /chat（纯文本 body）→ {reply} */
+const apiChat = (message) => apiTextField('/chat', 'reply', message);
 
 /* ============================================================
    Toast
@@ -635,6 +830,7 @@ function createTodoItem(todo) {
   actions.append(
     makeButton('btn btn-classify btn-sm', '🏷️', '分类',   () => onClassifyClick(todo)),
     makeButton('btn btn-priority btn-sm', '⚡', '优先级', () => onPrioritizeClick(todo)),
+    makeButton('btn btn-split btn-sm',    '🧩', '拆分',   () => onSplitClick(todo)),
     makeButton('btn btn-edit btn-sm',     '✏️', '编辑',   () => onEditClick(todo)),
     makeButton('btn btn-danger btn-sm',   '🗑️', '删除',   () => onDeleteClick(todo, li)),
   );
@@ -732,44 +928,48 @@ overlay.addEventListener('click', (e) => {
   if (e.target === overlay) closeModal();
 });
 
-// Esc 关闭
+// Esc 关闭：优先关弹窗，没有弹窗时收起聊天面板
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !overlay.hidden) closeModal();
+  if (e.key !== 'Escape') return;
+  if (!overlay.hidden) closeModal();
+  else if (!chatPanel.hidden) toggleChat(false);
 });
 
 /* ============================================================
-   跨域 / 连接失败 自助提示
+   连不上后端 自助提示
    ============================================================ */
 
-/** 只在网络层失败时展示 */
+/**
+ * 只在网络层失败时展示。
+ *
+ * 注意：后端 src/server.cpp 已经会给每个响应补上 CORS 头（回显 Origin），
+ * OPTIONS 预检也在 Handler::handle() 里返回 204——所以「跨域被浏览器拦下」
+ * 不再是这里的原因，不需要再用 --disable-web-security 启动浏览器。
+ * 现在 fetch 抛网络错误，基本只剩下「后端没在 8080 上跑」这一种可能。
+ */
 function showConnectionHint() {
   if (!corsHint.hidden) return;   // 已经显示过就不重复构建
-
-  const pageUrl = 'file:///' + location.pathname.replace(/^\//, '');
 
   corsHint.innerHTML = `
     <strong>连不上后端服务（${API_BASE}）。</strong>
     <ol>
-      <li>确认后端已启动，并在 <code>${API_BASE}</code> 监听。</li>
       <li>
-        若后端确实在跑，那就是浏览器<strong>跨域（CORS）</strong>拦截了。
-        本页面是用 <code>file://</code> 直接打开的，浏览器给它的源是 <code>null</code>；
-        而后端没有返回 <code>Access-Control-Allow-Origin</code> 响应头，
-        因此所有请求都会被浏览器拒绝。另外 <code>PUT</code> / <code>DELETE</code>
-        还会先发一个 <code>OPTIONS</code> 预检请求，后端也没有处理。
+        确认后端已经启动并监听 <code>8080</code>：
+        <code>./build/http_server</code>
+      </li>
+      <li>
+        如果改过后端代码，要先 <code>cmake --build build</code> 重新编译再启动；
+        已经在跑的旧进程不会自动加载新代码（新接口会一直返回 404）。
+      </li>
+      <li>
+        如果列表里的数据看着不对（例如多了测试数据），那是 Redis 里的旧缓存，
+        清一下即可：<code>redis-cli del todos_cache</code>
       </li>
     </ol>
     <div style="margin-top:10px">
-      <strong>解决办法（不需要改动后端）：</strong>
-      用「关闭同源策略」的开发模式启动一个独立的浏览器实例。
-      先关掉所有 Edge 窗口，再在 PowerShell 里执行：
-      <div style="margin-top:6px">
-        <code>&amp; "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --disable-web-security --user-data-dir="$env:TEMP\\edge-dev" "${pageUrl}"</code>
-      </div>
-      <div style="margin-top:6px">
-        Chrome 同理，把 <code>msedge.exe</code> 换成 <code>chrome.exe</code> 即可。
-        必须带 <code>--user-data-dir</code>，否则该参数不生效。
-      </div>
+      本页面是 <code>file://</code> 直接打开的，浏览器给它的源是 <code>null</code>；
+      后端会回显 <code>Origin</code> 并处理 <code>OPTIONS</code> 预检，
+      所以<strong>不需要</strong>再用 <code>--disable-web-security</code> 启动浏览器。
     </div>
   `;
 }
@@ -918,6 +1118,89 @@ function priorityLevelClass(priority) {
 }
 
 /**
+ * 把模型返回的多行文本切成子任务数组。
+ * 顺带去掉「1. 」「- 」「• 」这类列表前缀，存进数据库时更干净。
+ * @param {string} text
+ * @returns {string[]}
+ */
+function splitLines(text) {
+  return String(text)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:\d+\s*[.、)．]|[-*•·])\s*/, '').trim())
+    .filter(Boolean);
+}
+
+/**
+ * 拆分任务：POST /todo/split，把一条待办拆成 3~5 个子任务。
+ * @param {{id:number, content:string}} todo
+ */
+async function onSplitClick(todo) {
+  const btn = todoList.querySelector(`.todo-item[data-id="${todo.id}"] .btn-split`);
+  if (btn) btn.disabled = true;
+
+  try {
+    const text = await apiSplitTodo(todo.content);
+    const subtasks = splitLines(text);
+
+    const wrap = document.createElement('div');
+    const source = document.createElement('div');
+    source.className = 'modal-source';
+    source.textContent = todo.content;
+    wrap.appendChild(source);
+
+    if (subtasks.length > 1) {
+      const list = document.createElement('ol');
+      list.className = 'modal-subtasks';
+      for (const s of subtasks) {
+        const li = document.createElement('li');
+        li.textContent = s;          // textContent：模型输出不会被当成标签解析
+        list.appendChild(li);
+      }
+      wrap.appendChild(list);
+    } else {
+      // 模型偶尔不按格式返回（比如兜底值「拆分失败」），原样展示
+      const box = document.createElement('div');
+      box.className = 'modal-summary';
+      box.textContent = text.trim() || '（AI 没有返回内容）';
+      wrap.appendChild(box);
+    }
+
+    const actions = [{ label: '知道了', className: 'btn btn-primary', onClick: closeModal }];
+    if (subtasks.length > 1) {
+      actions.unshift({
+        label: `全部添加（${subtasks.length}）`,
+        className: 'btn btn-ghost',
+        onClick: () => addAllSubtasks(subtasks),
+      });
+    }
+
+    openModal({ icon: '🧩', title: 'AI 拆分的子任务', body: wrap, actions });
+  } catch (err) {
+    handleError(err, '拆分失败');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/**
+ * 把拆出来的子任务逐条 POST /todo 存进后端。
+ * 串行发送：后端线程池只有 4 条线程，而且写操作会清缓存，没必要并发。
+ * @param {string[]} subtasks
+ */
+async function addAllSubtasks(subtasks) {
+  closeModal();
+  try {
+    for (const s of subtasks) {
+      await apiCreateTodo(s);
+    }
+    showToast(`已添加 ${subtasks.length} 条待办`, 'success');
+    await loadTodos({ silent: true });
+  } catch (err) {
+    handleError(err, '批量添加失败');
+  }
+}
+
+/**
  * 一键总结：把当前所有待办拼成一段纯文本，POST /todo/summarize。
  */
 async function onSummarizeClick() {
@@ -1035,10 +1318,121 @@ async function onDeleteClick(todo, li) {
 }
 
 /* ============================================================
+   AI 聊天（POST /chat）
+   ============================================================ */
+
+/**
+ * 前端保留的对话历史。
+ *
+ * 后端的 /chat 每次只把单条 message 拼进提示词（"请回答用户的问题：" + message），
+ * 服务端不保存任何会话状态，所以如果不在这里记住上下文，AI 每轮都会失忆
+ * ——「那第二个呢？」这种追问就没法回答。发请求时把最近的对话拼成一段文本带过去。
+ */
+const chatHistory = [];
+
+/** 最多带几轮历史（一轮 = 用户 + 助手），太多会让提示词过长 */
+const CHAT_HISTORY_TURNS = 6;
+
+/**
+ * 展开 / 收起聊天面板。
+ * @param {boolean} [show] 不传则切换
+ */
+function toggleChat(show) {
+  const next = (typeof show === 'boolean') ? show : chatPanel.hidden;
+  chatPanel.hidden = !next;
+  chatBtn.setAttribute('aria-expanded', String(next));
+  if (next) chatInput.focus();
+}
+
+/**
+ * 往聊天区追加一条消息。
+ * @param {string} text
+ * @param {'user'|'assistant'|'error'|'typing'} role
+ * @returns {HTMLElement} 返回该节点，方便「思考中…」用完删掉
+ */
+function appendChatMessage(text, role) {
+  const el = document.createElement('div');
+  el.className = `chat-msg ${role}`;
+  el.textContent = text;      // textContent：模型输出不会被当成标签解析
+  chatLog.appendChild(el);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return el;
+}
+
+/**
+ * 拼出真正发给后端的文本：把最近的对话一起带上，弥补后端无状态。
+ * @param {string} message 本次要问的内容（还没记进 chatHistory）
+ * @returns {string}
+ */
+function buildChatPayload(message) {
+  const recent = chatHistory.slice(-CHAT_HISTORY_TURNS * 2);
+  if (!recent.length) return message;
+
+  const lines = recent.map((m) => (m.role === 'user' ? '用户：' : '助手：') + m.text);
+  lines.push('用户：' + message);
+  return lines.join('\n');
+}
+
+/** 发送一条消息给 /chat */
+async function onChatSend() {
+  const message = chatInput.value.trim();
+  if (!message) {
+    chatInput.focus();
+    return;
+  }
+
+  chatInput.value = '';
+  appendChatMessage(message, 'user');
+
+  // 顺序很重要：先按「发送前」的历史拼 payload，再把这条记进历史，否则会重复
+  const payload = buildChatPayload(message);
+  chatHistory.push({ role: 'user', text: message });
+
+  // 后端 curl 最长等 15s，期间禁用按钮防止连点（线程池只有 4 条线程）
+  chatSendBtn.disabled = true;
+  chatInput.disabled = true;
+  const typing = appendChatMessage('思考中…', 'typing');
+
+  try {
+    const reply = await apiChat(payload);
+    typing.remove();
+    const text = reply.trim() || '（AI 没有返回内容）';
+    appendChatMessage(text, 'assistant');
+    chatHistory.push({ role: 'assistant', text });
+  } catch (err) {
+    console.error(err);
+    typing.remove();
+    const msg = err instanceof ApiError ? err.message : '聊天失败';
+    appendChatMessage(msg, 'error');
+    if (err instanceof ApiError && err.kind === 'NETWORK') showConnectionHint();
+  } finally {
+    chatSendBtn.disabled = false;
+    chatInput.disabled = false;
+    chatInput.focus();
+  }
+}
+
+/* ============================================================
    事件绑定 & 初始化
    ============================================================ */
 addBtn.addEventListener('click', onAddClick);
 summarizeBtn.addEventListener('click', onSummarizeClick);
+
+// ---- AI 聊天面板 ----
+chatBtn.addEventListener('click', () => toggleChat());
+chatCloseBtn.addEventListener('click', () => toggleChat(false));
+chatClearBtn.addEventListener('click', () => {
+  chatHistory.length = 0;
+  chatLog.innerHTML = '';
+  chatInput.focus();
+});
+chatSendBtn.addEventListener('click', onChatSend);
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    onChatSend();
+  }
+});
 
 // 输入框回车也能添加
 todoInput.addEventListener('keydown', (e) => {
