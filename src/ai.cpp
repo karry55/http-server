@@ -162,3 +162,16 @@ std::string AI::Prioritize(const std::string& content) {
         return "中";
     }
 }
+
+std::string AI::Split(const std::string& content) {
+    std::string prompt = "请把以下任务拆分成 3~5 个子任务，用换行分隔，只返回子任务：\n" + content;
+    std::string response = CallDeepSeek(prompt);
+
+    try {
+        json j = json::parse(response);
+        return j["choices"][0]["message"]["content"];
+    } catch (const std::exception& e) {
+        std::cerr << "解析错误: " << e.what() << std::endl;
+        return "拆分失败";
+    }
+}

@@ -174,7 +174,11 @@ std::pair<std::string, std::string> Handler::handle(
     std::string priority = ai_.Prioritize(req_body);
     trim(priority);
     body = R"({"priority": ")" + json_escape(priority) + R"("})";
-    }else {
+    } else if (method == "POST" && path == "/todo/split") {
+    std::string subtasks = ai_.Split(req_body);
+    body = R"({"subtasks": ")" + subtasks + R"("})";
+    }
+    else {
         body = R"({"error": "not found"})";
         status = "404 Not Found";
     }
