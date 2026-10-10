@@ -382,6 +382,14 @@ body {
 }
 .chat-head .btn:first-of-type { margin-left: auto; }   /* 「清空」推到最右 */
 
+/* 「AI 能看到几条待办」的上下文提示 */
+.chat-context {
+  margin-top: -6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
 .chat-log {
   display: flex;
   flex-direction: column;
@@ -510,7 +518,11 @@ body {
 
   <!--
     AI 聊天面板。
-    注意：后端 /chat 每次只接收一条 message，服务端不保存会话，
+
+    待办上下文由**后端**负责：POST /chat 每次都会自己 db_.getTodos() 读出全部待办
+    拼进提示词（见 src/handler.cpp 的 /chat 分支），所以前端不用、也不该把待办再发一遍。
+
+    但对话上下文后端仍然不保存（AI::Chat 只收到前端发来的这一段文本），
     所以多轮对话的历史要在前端拼进请求体里（见 buildChatPayload）。
   -->
   <section id="chat-panel" class="card chat-card" hidden>
@@ -519,10 +531,12 @@ body {
       <button id="chat-clear-btn" class="btn btn-ghost btn-sm" type="button">清空</button>
       <button id="chat-close-btn" class="btn btn-ghost btn-sm" type="button">收起</button>
     </div>
+    <!-- 让用户知道 AI 这一轮到底「看得见什么」，条数随列表变动刷新 -->
+    <div id="chat-context" class="chat-context"></div>
     <div id="chat-log" class="chat-log" aria-live="polite"></div>
     <div class="composer" style="margin-bottom:0">
       <input id="chat-input" class="input" type="text" maxlength="500"
-             placeholder="问问 AI，比如「帮我安排今天的任务」" autocomplete="off">
+             placeholder="问问 AI，比如「这些事该怎么安排？」" autocomplete="off">
       <button id="chat-send-btn" class="btn btn-primary" type="button">发送</button>
     </div>
   </section>
@@ -579,6 +593,7 @@ const chatClearBtn = $('chat-clear-btn');
 const chatLog      = $('chat-log');
 const chatInput    = $('chat-input');
 const chatSendBtn  = $('chat-send-btn');
+const chatContext  = $('chat-context');
 
 /* ============================================================
    错误类型
@@ -611,9 +626,12 @@ class ApiError extends Error {
  *     body = R"({"subtasks": ")" + subtasks + R"("})";
  *
  * Split() 的提示词要求「用换行分隔」，模型返回的是**真实换行符**；
- * Chat() 的回复里也可能有真实换行或双引号。
- * JSON 的字符串里不允许出现裸换行，所以这两个响应严格来说不是合法 JSON，
- * JSON.parse 一定会抛错。字段本身是能用的，只能在前端容错解析——而不是去动后端。
+ * Chat() 的回复里也可能有真实换行或双引号（而且它不像 Classify() 那样会 trim，
+ * 首尾还常带着换行）。JSON 的字符串里不允许出现裸换行，所以这两个响应
+ * 严格来说不是合法 JSON，JSON.parse 一定会抛错。
+ * 字段本身是能用的，只能在前端容错解析——而不是去动后端。
+ *
+ * 注意：取出来的内容首尾可能带空白，交给调用方 trim（见 onChatSend）。
  *
  * @param {any}    data   已解析出的对象，或解析失败后的原始文本
  * @param {string} field  字段名，如 'subtasks' / 'reply' / 'error'
@@ -865,7 +883,8 @@ function makeButton(className, icon, label, onClick) {
  * @param {Array<{id:number, content:string}>} todos
  */
 function renderTodos(todos) {
-  currentTodos = todos;          // 记下来，供「一键总结」使用
+  currentTodos = todos;          // 记下来，供「一键总结」和聊天的上下文提示使用
+  updateChatContext();           // 待办变了，聊天面板里提示的条数也要跟着变
   todoList.innerHTML = '';
 
   if (!todos.length) {
@@ -1324,14 +1343,36 @@ async function onDeleteClick(todo, li) {
 /**
  * 前端保留的对话历史。
  *
- * 后端的 /chat 每次只把单条 message 拼进提示词（"请回答用户的问题：" + message），
- * 服务端不保存任何会话状态，所以如果不在这里记住上下文，AI 每轮都会失忆
- * ——「那第二个呢？」这种追问就没法回答。发请求时把最近的对话拼成一段文本带过去。
+ * 这里有两件事要分清，它们由不同的人负责：
+ *
+ *  1. **待办上下文 —— 后端负责。**
+ *     POST /chat 每次都会先 db_.getTodos() 把全部待办拼成 "- 内容\n" 塞进提示词，
+ *     再拼上用户的问题（见 src/handler.cpp 的 /chat 分支）。
+ *     所以前端不需要、也不该把待办一起发过去，否则提示词里会出现两份。
+ *
+ *  2. **对话上下文 —— 前端负责。**
+ *     后端依然不保存任何会话状态：AI::Chat(message, todos) 收到的 message
+ *     就是它看到的全部对话内容。若不在这里记住上下文，AI 每轮都会失忆
+ *     ——「那第二个呢？」这种追问就没法回答。发请求时把最近的对话拼进 message。
  */
 const chatHistory = [];
 
 /** 最多带几轮历史（一轮 = 用户 + 助手），太多会让提示词过长 */
 const CHAT_HISTORY_TURNS = 6;
+
+/**
+ * 刷新「AI 这轮能看到什么」的提示。
+ *
+ * 后端 /chat 是自己去数据库读待办的，前端控制不了它读到什么；
+ * 这里只是把「它现在能看到几条」如实告诉用户——待办为空时 AI 没有可参考的上下文，
+ * 提前讲清楚，比让用户疑惑「它怎么不知道我的待办」要好。
+ */
+function updateChatContext() {
+  const n = currentTodos.length;
+  chatContext.textContent = n
+    ? `AI 能看到你当前的 ${n} 条待办，可以直接问它「这些事该怎么安排」。`
+    : '你还没有待办，AI 暂时没有可参考的上下文。';
+}
 
 /**
  * 展开 / 收起聊天面板。
@@ -1341,7 +1382,10 @@ function toggleChat(show) {
   const next = (typeof show === 'boolean') ? show : chatPanel.hidden;
   chatPanel.hidden = !next;
   chatBtn.setAttribute('aria-expanded', String(next));
-  if (next) chatInput.focus();
+  if (next) {
+    updateChatContext();     // 打开时先刷新上下文提示
+    chatInput.focus();
+  }
 }
 
 /**
@@ -1360,7 +1404,8 @@ function appendChatMessage(text, role) {
 }
 
 /**
- * 拼出真正发给后端的文本：把最近的对话一起带上，弥补后端无状态。
+ * 拼出真正发给后端的文本：把最近的对话一起带上，弥补后端不保存会话。
+ * 待办列表**不用带**——后端 /chat 自己会从数据库读（见上面 chatHistory 的说明）。
  * @param {string} message 本次要问的内容（还没记进 chatHistory）
  * @returns {string}
  */

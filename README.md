@@ -25,8 +25,9 @@ DeepSeek AI 能力，并配了一个纯前端页面。
 
 ```
 .
-├── CMakeLists.txt            构建配置（开启 -Wall -Wextra -Wshadow）
-├── main.cpp                  组装六个对象，27 行
+├── CMakeLists.txt            构建配置（-Wall -Wextra -Wshadow，注册 6 个测试目标）
+├── .clang-format             Google 风格，IndentWidth 4，ColumnLimit 100
+├── main.cpp                  组装六个对象，32 行
 ├── .env                      真实密钥，**不入库**（见「配置 API Key」）
 ├── .env.example              模板，只有键名，可以入库
 ├── .vscode/                  VS Code 调试与任务配置（被 gitignore 忽略）
@@ -39,22 +40,24 @@ DeepSeek AI 能力，并配了一个纯前端页面。
 │   ├── db.h                    SQLite 封装
 │   ├── cache.h                 Redis 封装
 │   ├── ai.h                    DeepSeek 调用封装
-│   ├── thread_pool.h           通用线程池
-│   └── check.h                 测试断言宏（CHECK / CHECK_EQ / test_summary）
+│   └── thread_pool.h           通用线程池
 ├── src/                      对应实现
-│   ├── server.cpp             166 行
-│   ├── handler.cpp            166 行
-│   ├── ai.cpp                 132 行
-│   ├── db.cpp                  80 行
-│   ├── thread_pool.cpp         40 行
-│   └── cache.cpp               31 行
+│   ├── server.cpp             204 行
+│   ├── handler.cpp            214 行（路由表在这里）
+│   ├── ai.cpp                 191 行
+│   ├── db.cpp                  94 行
+│   ├── thread_pool.cpp         45 行
+│   └── cache.cpp               39 行
 ├── tests/                    单元测试（已接入 CTest）
-│   ├── test_db.cpp            12 行，10 条断言
-│   ├── test_cache.cpp         15 行，打印式（TODO：补断言）
-│   ├── test_handler.cpp       78 行，20 条断言
-│   └── test_thread_pool.cpp   11 行，打印式（TODO：补断言）
+│   ├── check.h                断言宏（CHECK / CHECK_EQ / test_summary），35 行
+│   ├── test_db.cpp            23 行，10 条断言
+│   ├── test_handler.cpp       91 行，20 条断言
+│   ├── test_ai.cpp            22 行，3 条断言（要真实网络 + API key）
+│   ├── test_server.cpp        23 行，1 条断言（只构造，没真起服务）
+│   ├── test_cache.cpp         22 行，打印式（TODO：补断言）
+│   └── test_thread_pool.cpp   12 行，打印式（TODO：补断言）
 ├── frontend/
-│   └── index.html             纯前端页面（增删改查 + 三个 AI 按钮）
+│   └── index.html             纯前端页面（增删改查 + AI 分类/优先级/拆分/总结/聊天）
 └── demo/
     └── ai_demo.cpp            独立的 AI 调用示例（不依赖服务器）
 ```
@@ -119,7 +122,26 @@ Handler::handle()     先查缓存 "todos_cache"
 | `POST` | `/todo/classify` | **AI 分类**，返回 `{"category": "..."}` |
 | `POST` | `/todo/prioritize` | **AI 优先级**，返回 `{"priority": "高/中/低"}` |
 | `POST` | `/todo/summarize` | **AI 总结**，返回 `{"summary": "..."}` |
+| `POST` | `/todo/split` | **AI 拆分任务**，返回 `{"subtasks": "..."}`（多行文本） |
+| `POST` | `/chat` | **AI 聊天**，返回 `{"reply": "..."}`；服务端会**自己带上全部待办**当上下文 |
 | `OPTIONS` | 任意路径 | CORS 预检，返回 `204 No Content` |
+
+### ⚠️ `/todo/split` 和 `/chat` 的响应不是合法 JSON
+
+`src/handler.cpp` 里只有 `classify` / `summarize` / `prioritize` 三个分支走了
+`json_escape()`，而这两个是**直接把模型输出拼进 JSON** 的：
+
+```cpp
+body = R"({"subtasks": ")" + subtasks + R"("})";
+body = R"({"reply": ")"    + reply    + R"("})";
+```
+
+`Split()` 的提示词要求「用换行分隔」，模型返回的是**真实换行符**；`Chat()` 的回复里
+也可能有真实换行或双引号（而且它不像 `Classify()` 那样会 trim，首尾还常带换行）。
+JSON 的字符串里不允许出现裸换行，所以这两个响应严格来说不是合法 JSON，
+`JSON.parse` 一定抛错 —— **前端因此必须做容错解析**（见「前端」一节的 `extractField()`）。
+
+这不是前端该绕过去的坑，正确修法是给这两个分支补上 `json_escape()`（见「已知问题」）。
 
 ### 状态码
 
@@ -140,6 +162,7 @@ Handler::handle()     先查缓存 "todos_cache"
 | `parse_id()` 做范围校验 | `src/handler.cpp` | **超大 id 会让整个进程崩溃**。`std::stoi` 在数字超出 `int` 范围时抛 `std::out_of_range`，异常逃出线程函数会触发 `std::terminate()` |
 | 线程池任务外包 `try/catch` | `src/thread_pool.cpp` | 兜底：任何任务抛异常都不能杀死进程 |
 | `json_escape()` | `src/handler.cpp` | 待办内容含 `"` 会破坏响应 JSON，**整个列表在前端都刷不出来** |
+| ⚠️ `/todo/split`、`/chat` **漏了** `json_escape()` | `src/handler.cpp` | **没防住**：模型回复里的裸换行/双引号让这两个响应不是合法 JSON，只能靠前端容错解析（见「接口」和「前端」） |
 | 请求体 1 MB 上限 | `src/server.cpp` | **实现有缺陷，不能可靠拦截，见下方「已发现的严重缺陷」** |
 | AI 调用超时（连接 5s / 总 15s） | `src/ai.cpp` | 外部服务卡死会占满 4 个工作线程，**整个服务失去响应** |
 | `safe_origin()` 校验 Origin | `src/server.cpp` | CRLF 响应头注入 |
@@ -207,13 +230,15 @@ Vary: Origin
 
 ## AI 集成
 
-`AI` 类提供三个能力，都通过同一个 `CallDeepSeek()` 发请求：
+`AI` 类提供五个能力，都通过同一个 `CallDeepSeek()` 发请求：
 
 | 方法 | 接口 | 提示词要点 | 兜底值 |
 | --- | --- | --- | --- |
 | `Classify()` | `POST /todo/classify` | 限定「购物/工作/学习/其他」四选一 | `"其他"` |
 | `Prioritize()` | `POST /todo/prioritize` | 给了明确判断标准 + 「只回答一个汉字」 | `"中"` |
 | `Summarize()` | `POST /todo/summarize` | 「用一句话总结」 | `"总结失败"` |
+| `Split()` | `POST /todo/split` | 「拆分成 3~5 个子任务，用换行分隔」 | `"拆分失败"` |
+| `Chat()` | `POST /chat` | 先列出全部待办，再给问题，要求「根据待办事项回答」 | `"抱歉，我暂时无法回答。"` |
 
 ### 调用链
 
@@ -225,7 +250,36 @@ POST /todo/classify  →  Handler::handle()  →  AI::Classify()
                                         libcurl → api.deepseek.com
                                                     ↓
                                         nlohmann/json 解析响应
+
+POST /chat  →  Handler::handle()  →  DB::getTodos()      ← 先读出全部待办
+                                          ↓
+                                   AI::Chat(message, todos)
 ```
+
+### `/chat` 为什么会知道你的待办
+
+`Handler` 在调 AI 之前会先 `db_.getTodos()` 把全部待办读出来，拼成 `- 内容\n`
+的形式一起塞进提示词：
+
+```
+你是一个待办助手。以下是用户的待办事项：
+- 买牛奶
+- 明天交周报
+
+用户的问题：<前端发来的文本>
+
+请根据待办事项回答用户的问题。
+```
+
+**职责要分清**（这也是前后端的分工依据）：
+
+| 上下文 | 谁负责 | 说明 |
+| --- | --- | --- |
+| **待办列表** | **后端** | `/chat` 每次都自己去数据库读，所以前端**不需要也不应该**再发一遍，否则提示词里会出现两份 |
+| **对话历史** | **前端** | 后端不保存任何会话状态：`AI::Chat()` 收到的 message 就是它看到的全部内容。多轮追问（「那第二个呢？」）要由前端把最近的对话拼进正文 |
+
+`/chat` 读的是**数据库**而不是 Redis 缓存，所以它看到的待办一定是最新的；
+而列表页走的是 60s 缓存，极端情况下两者可能短暂不一致（写入时都会清缓存，正常不会）。
 
 `Prioritize()` 的提示词最用心，给了明确的判断标准：
 
@@ -308,6 +362,55 @@ g++ -std=c++17 -o ai_demo ai_demo.cpp -lcurl
 ./ai_demo
 ```
 
+## 前端
+
+`frontend/index.html` 是**单文件**页面（HTML + CSS + JS 全在里面，无构建、无依赖、
+无 CDN），**直接用浏览器打开就行**，不需要起静态服务器：
+
+```
+双击 frontend/index.html
+```
+
+后端已经会回显 `Origin` 并处理 `OPTIONS` 预检（见「CORS」），
+所以 `file://` 打开的页面能直接调 `http://127.0.0.1:8080`，
+**不需要**再拿 `--disable-web-security` 启动浏览器。
+
+### 界面元素 ↔ 接口
+
+| 界面元素 | 调用的接口 |
+| --- | --- |
+| 添加 / 列表 / 编辑 / 删除 | `POST /todo`、`GET /todos`、`PUT /todo/<id>`、`DELETE /todo/<id>` |
+| 每条待办的「分类」 | `POST /todo/classify` |
+| 每条待办的「优先级」 | `POST /todo/prioritize` |
+| 每条待办的「拆分」 | `POST /todo/split`（可一键把子任务批量存成待办） |
+| 顶部「一键总结」 | `POST /todo/summarize`（把所有待办用 `；` 连起来发过去） |
+| 顶部「AI 助手」 | `POST /chat` |
+
+请求体一律用 `Content-Type: text/plain;charset=UTF-8`：后端只把 `\r\n\r\n` 之后的
+字节当正文，根本不解析 Content-Type；而 `text/plain` 属于 CORS 安全类型，
+不会触发预检，能省一次 `OPTIONS` 往返。
+
+### 为什么前端要做「容错解析」
+
+因为 `/todo/split` 和 `/chat` 的响应不是合法 JSON（原因见「接口」一节的警告）。
+`extractField()` 的处理顺序是：
+
+1. 先按合法 JSON 解析 —— 正常路径，`\"` `\\` 这类转义能被正确还原；
+2. 失败就手工剥掉 `{"字段": " ... "}` 外壳 —— 贪婪匹配到最后一个 `"` 之前，
+   这样正文里的真实换行、双引号、大括号都能原样保留。
+
+**这只是在前端把坑绕过去，不等于修好了。** 根本修法是在 `src/handler.cpp`
+给这两个分支补上 `json_escape()`（见「已知问题」）。
+
+### 聊天面板的两个细节
+
+- **待办上下文不用前端发**：`/chat` 在服务端自己读数据库（见「AI 集成」）。
+  前端只负责**对话历史** —— 后端不保存会话，所以 `buildChatPayload()`
+  会把最近 6 轮对话拼成 `用户：… / 助手：…` 的文本再发出去，
+  否则 AI 每轮都会失忆，接不住「那第二个呢？」这种追问。
+- **面板上会显示「AI 能看到你当前的 N 条待办」**：因为读待办的是后端、前端管不了，
+  待办为空时提前说明 AI 没有可参考的上下文，比让用户疑惑「它怎么不知道我的待办」要好。
+
 ## 编译与运行
 
 ### 依赖
@@ -348,10 +451,12 @@ curl http://127.0.0.1:8080/todo/1
 curl -X PUT -d 'buy bread' http://127.0.0.1:8080/todo/1
 curl -X DELETE http://127.0.0.1:8080/todo/1
 
-# AI 三个能力
+# AI 五个能力
 curl -X POST -d '明天要交周报' http://127.0.0.1:8080/todo/classify     # {"category":"工作"}
 curl -X POST -d '明天要交周报' http://127.0.0.1:8080/todo/prioritize   # {"priority":"高"}
 curl -X POST -d '买牛奶；买资料' http://127.0.0.1:8080/todo/summarize  # {"summary":"..."}
+curl -X POST -d '准备期末项目' http://127.0.0.1:8080/todo/split        # {"subtasks":"1. ...\n2. ..."}
+curl -X POST -d '我这些待办该先做哪个？' http://127.0.0.1:8080/chat    # {"reply":"..."}（自带待办上下文）
 
 # 防御机制验证
 curl http://127.0.0.1:8080/todo/99999999999999999999   # {"error":"invalid id"}（服务不死）
@@ -384,7 +489,7 @@ cd build && ./http_server        # ✅ 也可以，读的还是根目录那份
 
 ## 测试
 
-四个模块的单元测试**已经接进 CMake / CTest**，用 `include/check.h` 里的断言宏判断对错，
+六个测试目标**已经接进 CMake / CTest**，用 `tests/check.h` 里的断言宏判断对错，
 不需要人眼看输出。
 
 ### 编译并运行全部测试
@@ -399,16 +504,23 @@ ctest --test-dir build --output-on-failure
 
 ```
     Start 1: test_db
-1/4 Test #1: test_db ..........................   Passed    0.01 sec
+1/6 Test #1: test_db ..........................   Passed    0.01 sec
     Start 2: test_thread_pool
-2/4 Test #2: test_thread_pool .................   Passed    0.00 sec
+2/6 Test #2: test_thread_pool .................   Passed    0.00 sec
     Start 3: test_cache
-3/4 Test #3: test_cache .......................   Passed    0.00 sec
+3/6 Test #3: test_cache .......................   Passed    0.00 sec
     Start 4: test_handler
-4/4 Test #4: test_handler .....................   Passed    0.01 sec
+4/6 Test #4: test_handler .....................   Passed    0.01 sec
+    Start 5: test_ai
+5/6 Test #5: test_ai ..........................   Passed    3.20 sec
+    Start 6: test_server
+6/6 Test #6: test_server ......................   Passed    0.01 sec
 
-100% tests passed, 0 tests failed out of 4
+100% tests passed, 0 tests failed out of 6
 ```
+
+`test_ai` 是唯一会真的走网络的，所以它最慢（3 次 DeepSeek 调用）；
+没有 key 或断网时它**照样显示通过**，原因见下面「各测试在测什么」。
 
 `--output-on-failure` 表示只有失败的用例才把输出贴出来。
 
@@ -439,12 +551,14 @@ ctest --test-dir build -N                       # 只列出不运行
 
 ### 各测试在测什么
 
-| 测试 | 覆盖内容 | 断言数 | 需要 Redis |
-| --- | --- | --- | --- |
-| `test_db` | 空库、增、查、查不到（返回 `-1`）、改、删 | **10 条** | ❌（用 `:memory:`） |
-| `test_cache` | `set` / `get` / `del` | 打印式 ⚠️ | ✅ |
-| `test_handler` | 直接调 `Handler::handle()`，覆盖 11 组场景 | **20 条** | ✅ |
-| `test_thread_pool` | 投 10 个任务 | 打印式 ⚠️ | ❌ |
+| 测试 | 覆盖内容 | 断言数 | 真的会失败吗 | 依赖 |
+| --- | --- | --- | --- | --- |
+| `test_db` | 空库、增、查、查不到（返回 `-1`）、改、删 | **10 条** | ✅ 会 | `:memory:`，不依赖 Redis |
+| `test_handler` | 直接调 `Handler::handle()`，覆盖 8 组场景 | **20 条** | ✅ 会 | Redis |
+| `test_ai` | 真实调 3 次 `Classify("买牛奶"/"学习C++"/"写代码")` | 3 条 | ❌ **几乎恒真** | 网络 + API key |
+| `test_server` | 只 `CHECK(true)`：能构造不崩就算过 | 1 条 | ❌ **恒真** | Redis |
+| `test_cache` | `set` / `get` / `del`，只 `cout` 不判断 | 0 条 | ❌ 打印式 | Redis |
+| `test_thread_pool` | 投 10 个任务，只 `cout` 不判断 | 0 条 | ❌ 打印式 | — |
 
 `test_handler` 覆盖的场景包括：`GET /`、`GET /status`、`POST /todo`、`GET /todos`
 （检查返回是不是合法数组）、`404` 未匹配路径、非法 id（`abc` / `0` / 超大数字）、
@@ -454,13 +568,20 @@ ctest --test-dir build -N                       # 只列出不运行
 **注意**：`test_db` 和 `test_handler` 都用 `DB db(":memory:")`——内存数据库，
 每次都是全新的，测试之间不会互相污染，也不会在磁盘上留垃圾文件。
 
-> ⚠️ `test_cache` 和 `test_thread_pool` **目前还是打印式**，只 `cout` 然后 `return 0`，
-> 所以它们**永远显示"通过"**——Redis 挂掉、线程分配错了都发现不了。
-> 这是下一步要补的（宏已经现成，把 `cout` 换成 `CHECK` 即可）。
+> ⚠️ **六个测试里有四个不会真的失败**，看到"全绿"别太放心：
+>
+> - `test_cache` / `test_thread_pool` 是**打印式**：只 `cout` 然后 `return 0`，
+>   Redis 挂掉、线程分配错了都发现不了。宏是现成的，把 `cout` 换成 `CHECK` 即可。
+> - `test_ai` 的断言是 `CHECK(!category.empty())`，而 `AI::Classify()` 在解析失败时
+>   **会返回兜底值 `"其他"`**——兜底值也是非空的，所以断网、没 key、模型返回垃圾，
+>   它**照样通过**（只有 API 真返回空字符串才会挂，正常不会）。想真测就得断言具体分类，
+>   或改成注入假 HTTP。
+> - `test_server` 只有一句 `CHECK(true)`：`Server` 构造没崩就算过，
+>   并没有真的 `listen` + 发请求 + 校验响应。
 
 ### 断言宏
 
-`include/check.h` 提供了三个工具：
+`tests/check.h` 提供了三个工具：
 
 | 宏 / 函数 | 作用 |
 | --- | --- |
@@ -480,7 +601,9 @@ if (v < 1 || v > 2147483647L) return false;   // 改前（正确）
 if (v < 1) return false;                       // 改后（故意去掉上界检查）
 ```
 
-重新编译并跑测试，**应该看到失败**（比如 `18 通过, 2 失败`）。
+重新编译并跑测试，**应该看到失败**：`test_handler` 会变成 `19 通过, 1 失败`。
+只有 `2147483648 → 400` 这一条会挂——`2147483648` 装得进 `long`，去掉上界检查后
+它会被 `static_cast<int>` 截成一个负数、查不到记录，于是返回 `404` 而不是 `400`。
 如果还是全过，说明测试写错了。验证完记得改回来。
 
 ## 已完成的安全加固
@@ -495,6 +618,8 @@ if (v < 1) return false;                       // 改后（故意去掉上界检
 - ✅ AI 返回值含结尾换行（`"工作\n"`）污染 JSON
 - ✅ `test_handler` 是打印式假测试，改为 20 条真实断言
 - ⚠️ 请求体大小上限**已加但没有真正生效**——见「已知问题」的第一条
+- ⚠️ `/todo/split`、`/chat` 的响应**没有走 `json_escape()`**（`Chat()` 还去掉了结尾的 `trim`），
+  严格来说不是合法 JSON——见「已知问题」
 
 ## 已知问题与改进方向
 
@@ -540,12 +665,44 @@ if (v < 1) return false;                       // 改后（故意去掉上界检
      不足就继续 `read`（配合 `epoll` 等待下一次可读事件，而不是直接 `break`）
   4. 注意 `Content-Length` 是**字节数**，不是字符数
 
-  目前项目里的**其他防御机制（`parse_id`、`json_escape` 等）都有效**，
+  目前项目里的**其他防御机制（`parse_id`、列表接口的 `json_escape` 等）都有效**，
   只有这一条没有达到预期效果。
 
-- **`test_cache` / `test_thread_pool` 是打印式测试**：永远返回 0，不起保护作用。
-  改法：用 `include/check.h` 的 `CHECK` 替换 `cout`，结尾 `return test_summary(...)`；
-  `test_thread_pool` 还需要等任务跑完再断言（现在没等就返回，输出顺序随机）
+- **🔴 `/todo/split` 和 `/chat` 的响应没有 `json_escape()`，严格来说不是合法 JSON**
+
+  `src/handler.cpp` 里这两个分支是直接把模型输出拼进 JSON 的：
+
+  ```cpp
+  body = R"({"subtasks": ")" + subtasks + R"("})";
+  body = R"({"reply": ")"    + reply    + R"("})";
+  ```
+
+  `Split()` 的提示词要求「用换行分隔」，模型返回的是真实换行符；`Chat()` 的回复里也常有
+  真实换行或双引号（`93ef53c` 之后连结尾的 `trim` 也去掉了，首尾换行会一起进 JSON）。
+  裸换行在 JSON 字符串里是非法的，所以 `JSON.parse` 必然抛错。
+
+  **现状**：前端 `extractField()` 已经在容错解析，页面用户看不出问题——
+  但这是在客户端兜服务端的契约缺陷：任何别的客户端（curl、App、第三方集成）
+  拿到的都是一个**解析不了**的响应体。
+
+  **正确修法**：和另外三个 AI 分支保持一致，先 `trim()` 再 `json_escape()`：
+
+  ```cpp
+  } else if (method == "POST" && path == "/todo/split") {
+      std::string subtasks = ai_.Split(req_body);
+      trim(subtasks);
+      body = R"({"subtasks": ")" + json_escape(subtasks) + R"("})";
+  ```
+
+- **六个测试里有四个不会真的失败**（`test_cache`、`test_thread_pool`、`test_ai`、`test_server`）：
+
+  - `test_cache` / `test_thread_pool` 是**打印式**：只 `cout` 然后 `return 0`，永远返回 0，不起保护作用。
+    改法：用 `tests/check.h` 的 `CHECK` 替换 `cout`，结尾 `return test_summary(...)`；
+    `test_thread_pool` 还需要等任务跑完再断言（现在没等就返回，输出顺序随机）
+  - `test_ai` 的 `CHECK(!category.empty())` **几乎恒真**：`AI::Classify()` 解析失败时会返回
+    兜底值 `"其他"`，兜底值也是非空的。断网、没 key、模型返回垃圾，它全都通过
+    （只有 API 真返回空字符串才会挂，正常不会）。
+  - `test_server` 只有一句 `CHECK(true)`：构造没崩就算过，并没有真的 `listen` + 发请求 + 校验响应。
 - **fd 竞态**：`Server::run()` 收到可读事件后**没有先把 fd 从 epoll 摘除**就丢进线程池，
   读循环在工作线程里做。`EPOLLET` 下如果请求分多个 TCP 段到达，同一个 fd 可能被投递两次，
   两个线程同时读同一个 fd——轻则数据错乱，重则 double close。
@@ -562,8 +719,9 @@ if (v < 1) return false;                       // 改后（故意去掉上界检
 - **没有优雅关闭**：收到 `SIGINT` 时直接退出，在途请求会被中断
 - **`curl_global_init()` 没有调用**：libcurl 要求在主线程初始化一次。虽然现在会自动兜底，
   但在多线程环境下不推荐依赖这个行为
-- **AI 没有单元测试**：要发真实网络请求，属于集成测试。想测的话应该先把 HTTP 调用
-  抽成接口再注入假实现（现在 `Handler` 拿到的是具体的 `AI&`，不好替换）
+- **AI 只有 `test_ai` 这一个"假"集成测试**：它确实发真实网络请求（所以慢、还依赖 key），
+  但断言几乎恒真（原因见「高优先级」）。想真正测 AI，应该先把 HTTP 调用抽成接口再注入假实现
+  （现在 `Handler` 拿到的是具体的 `AI&`，不好替换）
 
 ### 低优先级
 
@@ -583,7 +741,13 @@ if (v < 1) return false;                       // 改后（故意去掉上界检
 > 注意 `.vscode/` 被忽略，所以 `launch.json` / `tasks.json` 不入库。
 > 如果想让别人也能一键调试，可以改成只忽略 `.vscode/settings.json`。
 
+代码风格由根目录的 **`.clang-format`** 约束（Google 风格，缩进 4，列宽 100）：
+
+```bash
+clang-format -i src/*.cpp include/*.h main.cpp   # 改完代码统一格式
+```
+
 其他分支：
 
 - **`single-file`** —— 六个单文件版本，含完整压测数据
-- **`feature-*`** —— 开发中的功能，合回本分支后删除
+- **`feature-*`** —— *约定*：开发中的功能用这个前缀起分支，合回 `main` 后删掉（当前还没有）
