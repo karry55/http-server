@@ -1,4 +1,5 @@
 #include "db.h"
+
 #include <iostream>
 
 DB::DB(const std::string& path) {
@@ -16,12 +17,14 @@ DB::DB(const std::string& path) {
 }
 
 DB::~DB() {
-    if (db_) sqlite3_close(db_);
+    if (db_)
+        sqlite3_close(db_);
 }
 
 bool DB::addTodo(const std::string& content) {
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db_, "INSERT INTO todos (content) VALUES (?);", -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, "INSERT INTO todos (content) VALUES (?);", -1, &stmt, nullptr) !=
+        SQLITE_OK) {
         return false;
     }
     sqlite3_bind_text(stmt, 1, content.c_str(), -1, SQLITE_TRANSIENT);
@@ -33,7 +36,8 @@ bool DB::addTodo(const std::string& content) {
 std::vector<Todo> DB::getTodos() {
     std::vector<Todo> result;
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db_, "SELECT id, content FROM todos;", -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, "SELECT id, content FROM todos;", -1, &stmt, nullptr) !=
+        SQLITE_OK) {
         return result;
     }
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -50,7 +54,8 @@ std::vector<Todo> DB::getTodos() {
 Todo DB::getTodo(int id) {
     Todo t{-1, ""};
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db_, "SELECT id, content FROM todos WHERE id = ?;", -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, "SELECT id, content FROM todos WHERE id = ?;", -1, &stmt,
+                           nullptr) != SQLITE_OK) {
         return t;
     }
     sqlite3_bind_int(stmt, 1, id);
@@ -65,7 +70,8 @@ Todo DB::getTodo(int id) {
 
 bool DB::updateTodo(int id, const std::string& content) {
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db_, "UPDATE todos SET content = ? WHERE id = ?;", -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, "UPDATE todos SET content = ? WHERE id = ?;", -1, &stmt, nullptr) !=
+        SQLITE_OK) {
         return false;
     }
     sqlite3_bind_text(stmt, 1, content.c_str(), -1, SQLITE_TRANSIENT);
@@ -77,7 +83,8 @@ bool DB::updateTodo(int id, const std::string& content) {
 
 bool DB::deleteTodo(int id) {
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db_, "DELETE FROM todos WHERE id = ?;", -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, "DELETE FROM todos WHERE id = ?;", -1, &stmt, nullptr) !=
+        SQLITE_OK) {
         return false;
     }
     sqlite3_bind_int(stmt, 1, id);

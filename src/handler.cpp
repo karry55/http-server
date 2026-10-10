@@ -1,4 +1,5 @@
 #include "handler.h"
+
 #include <cctype>
 #include <iostream>
 
@@ -7,9 +8,11 @@ namespace {
 // 注意只去首尾，中间的空格/换行要保留（比如总结可能是多行）。
 void trim(std::string& s) {
     size_t b = 0;
-    while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
+    while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b])))
+        ++b;
     size_t e = s.size();
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
+    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1])))
+        --e;
     s = s.substr(b, e - b);
 }
 // 把文本转义成能安全放进 JSON 双引号里的形式。
@@ -21,13 +24,27 @@ std::string json_escape(const std::string& s) {
     out.reserve(s.size() + 8);
     for (unsigned char c : s) {
         switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            case '\b': out += "\\b";  break;
-            case '\f': out += "\\f";  break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            case '\b':
+                out += "\\b";
+                break;
+            case '\f':
+                out += "\\f";
+                break;
             default:
                 if (c < 0x20) {
                     // 其他控制字符写成 \u00XX
@@ -36,7 +53,7 @@ std::string json_escape(const std::string& s) {
                     out += hex[(c >> 4) & 0xF];
                     out += hex[c & 0xF];
                 } else {
-                    out += static_cast<char>(c);   // 普通字节（含中文）原样保留
+                    out += static_cast<char>(c);  // 普通字节（含中文）原样保留
                 }
         }
     }
@@ -45,28 +62,29 @@ std::string json_escape(const std::string& s) {
 
 // 把字符串安全地转成 int。转不了就返回 false，绝不抛异常。
 bool parse_id(const std::string& s, int& out) {
-    if (s.empty()) return false;
+    if (s.empty())
+        return false;
     try {
         size_t pos = 0;
-        long v = std::stol(s, &pos);      // stol 能装更大的数
-        if (pos != s.size()) return false;              // 尾巴上有多余字符
-        if (v < 1 || v > 2147483647L) return false;     // int 的范围是 1 ~ 2147483647
+        long v = std::stol(s, &pos);  // stol 能装更大的数
+        if (pos != s.size())
+            return false;  // 尾巴上有多余字符
+        if (v < 1 || v > 2147483647L)
+            return false;  // int 的范围是 1 ~ 2147483647
         out = static_cast<int>(v);
         return true;
     } catch (const std::exception&) {
-        return false;                     // 连 stol 都装不下 → 视为非法
+        return false;  // 连 stol 都装不下 → 视为非法
     }
 }
 }  // namespace
 
-Handler::Handler(DB& db, Cache& cache, AI& ai)
-    : db_(db), cache_(cache), ai_(ai) {}
+Handler::Handler(DB& db, Cache& cache, AI& ai) : db_(db), cache_(cache), ai_(ai) {
+}
 
-std::pair<std::string, std::string> Handler::handle(
-    const std::string& method,
-    const std::string& path,
-    const std::string& req_body) {
-
+std::pair<std::string, std::string> Handler::handle(const std::string& method,
+                                                    const std::string& path,
+                                                    const std::string& req_body) {
     std::string body;
     std::string status = "200 OK";
 
@@ -98,9 +116,10 @@ std::pair<std::string, std::string> Handler::handle(
             body = "[";
             bool first = true;
             for (auto& t : todos) {
-                if (!first) body += ",";
-                body += R"({"id": )" + std::to_string(t.id) +
-                        R"(, "content": ")" + json_escape(t.content) + R"("})";
+                if (!first)
+                    body += ",";
+                body += R"({"id": )" + std::to_string(t.id) + R"(, "content": ")" +
+                        json_escape(t.content) + R"("})";
                 first = false;
             }
             body += "]";
@@ -123,8 +142,8 @@ std::pair<std::string, std::string> Handler::handle(
                     body = R"({"error": "not found"})";
                     status = "404 Not Found";
                 } else {
-                    body = R"({"id": )" + std::to_string(t.id) +
-                           R"(, "content": ")" + json_escape(t.content) + R"("})";
+                    body = R"({"id": )" + std::to_string(t.id) + R"(, "content": ")" +
+                           json_escape(t.content) + R"("})";
                     cache_.set(key, body, 60);
                 }
             }
@@ -162,26 +181,24 @@ std::pair<std::string, std::string> Handler::handle(
             cache_.del("todos_cache");
         }
     } else if (method == "POST" && path == "/todo/classify") {
-    std::string category = ai_.Classify(req_body);
-    trim(category);
-    body = R"({"category": ")" + json_escape(category) + R"("})";
-    }
-     else if (method == "POST" && path == "/todo/summarize") {
-    std::string summary = ai_.Summarize(req_body);
-    trim(summary);
-    body = R"({"summary": ")" + json_escape(summary) + R"("})";
+        std::string category = ai_.Classify(req_body);
+        trim(category);
+        body = R"({"category": ")" + json_escape(category) + R"("})";
+    } else if (method == "POST" && path == "/todo/summarize") {
+        std::string summary = ai_.Summarize(req_body);
+        trim(summary);
+        body = R"({"summary": ")" + json_escape(summary) + R"("})";
     } else if (method == "POST" && path == "/todo/prioritize") {
-    std::string priority = ai_.Prioritize(req_body);
-    trim(priority);
-    body = R"({"priority": ")" + json_escape(priority) + R"("})";
+        std::string priority = ai_.Prioritize(req_body);
+        trim(priority);
+        body = R"({"priority": ")" + json_escape(priority) + R"("})";
     } else if (method == "POST" && path == "/todo/split") {
-    std::string subtasks = ai_.Split(req_body);
-    body = R"({"subtasks": ")" + subtasks + R"("})";
+        std::string subtasks = ai_.Split(req_body);
+        body = R"({"subtasks": ")" + subtasks + R"("})";
     } else if (method == "POST" && path == "/chat") {
-    std::string reply = ai_.Chat(req_body);
-    body = R"({"reply": ")" + reply + R"("})";
-    }
-    else {
+        std::string reply = ai_.Chat(req_body);
+        body = R"({"reply": ")" + reply + R"("})";
+    } else {
         body = R"({"error": "not found"})";
         status = "404 Not Found";
     }
